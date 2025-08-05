@@ -8,16 +8,14 @@ blog:
     "#body":
       type: markdown
       embed_svg: true
-    "#body-image":
-      type: images
-      d1_table: images
-      backend:
-        type: r2
-        zone: assets.blog.example.com
-        bucket: blog-assets
-        prefix: blog/images
+      image:
+        d1_table: images
+        backend:
+          type: r2
+          zone: assets.blog.example.com
+          bucket: blog-assets
+          prefix: blog/images
         transforms:
-          type: matrix
           formats: [webp, avif]
           width: [480, 720, 1080, 1440, 1920]
     title:
@@ -41,7 +39,7 @@ blog:
         zone: assets.blog.example.com
         bucket: blog-assets
         prefix: blog/og-images
-        transform:
-          type: simple
-          width: 1200
-          format: avif
+      transform:
+        type: simple
+        width: 1200
+        format: avif

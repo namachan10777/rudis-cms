@@ -14,17 +14,17 @@ pub enum RasterImageFormat {
 impl RasterImageFormat {
     pub fn as_str(&self) -> &str {
         match self {
-            RasterImageFormat::Png => "png",
-            RasterImageFormat::Webp => "webp",
-            RasterImageFormat::Avif => "avif",
+            Self::Png => "png",
+            Self::Webp => "webp",
+            Self::Avif => "avif",
         }
     }
 
     pub fn as_mime_str(&self) -> &str {
         match self {
-            RasterImageFormat::Png => "image/png",
-            RasterImageFormat::Webp => "image/webp",
-            RasterImageFormat::Avif => "image/avif",
+            Self::Png => "image/png",
+            Self::Webp => "image/webp",
+            Self::Avif => "image/avif",
         }
     }
 }
@@ -37,39 +37,17 @@ impl std::fmt::Display for RasterImageFormat {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 #[serde(rename_all = "kebab-case", tag = "type")]
-pub enum ImageTransform {
-    Simple {
-        width: Option<u32>,
-        format: Option<RasterImageFormat>,
-    },
-    Matrix {
-        width: Option<Vec<u32>>,
-        format: Option<Vec<u32>>,
-    },
+pub struct ImageTransform {
+    width: Option<u32>,
+    format: Option<RasterImageFormat>,
 }
 
 impl ImageTransform {
     pub fn validate(&self) -> Result<(), String> {
-        match self {
-            ImageTransform::Simple { width, .. } => {
-                if width.map(|w| w == 0).unwrap_or_default() {
-                    return Err("Width must be greater than 0".into());
-                }
-                Ok(())
-            }
-            ImageTransform::Matrix { width, format } => {
-                if width.as_ref().map(|w| w.len()) == Some(0) {
-                    return Err("Width must not be an empty vector".into());
-                }
-                if format.as_ref().map(|f| f.len()) == Some(0) {
-                    return Err("Format must not be an empty vector".into());
-                }
-                if width.iter().flatten().any(|w| *w == 0) {
-                    return Err("Width values must be greater than 0".into());
-                }
-                Ok(())
-            }
+        if self.width.map(|w| w == 0).unwrap_or_default() {
+            return Err("Width must be greater than 0".into());
         }
+        Ok(())
     }
 }
 
@@ -80,18 +58,16 @@ pub enum ImageBackend {
         zone: String,
         bucket: String,
         prefix: Option<String>,
-        transform: Option<ImageTransform>,
     },
 }
 
 impl ImageBackend {
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            ImageBackend::R2 {
+            Self::R2 {
                 zone,
                 bucket,
                 prefix,
-                transform,
             } => {
                 if zone.is_empty() || bucket.is_empty() {
                     return Err("R2 zone and bucket must not be empty".into());
@@ -103,12 +79,34 @@ impl ImageBackend {
                 {
                     return Err("R2 prefix must not start or end with a slash".into());
                 }
-                if let Some(transform) = transform {
-                    transform.validate()?;
-                }
                 Ok(())
             }
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+#[serde(rename_all = "kebab-case", tag = "type")]
+pub struct RichTextImageBackend {
+    zone: String,
+    bucket: String,
+    prefix: Option<String>,
+}
+
+impl RichTextImageBackend {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.zone.is_empty() || self.bucket.is_empty() {
+            return Err("R2 zone and bucket must not be empty".into());
+        }
+        if self
+            .prefix
+            .as_ref()
+            .map(|prefix| prefix.starts_with("/") || prefix.ends_with("/"))
+            .unwrap_or_default()
+        {
+            return Err("R2 prefix must not start or end with a slash".into());
+        }
+        Ok(())
     }
 }
 
@@ -118,6 +116,35 @@ pub enum SetItemType {
     String,
     Integer,
     Boolean,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+pub struct RichTextImageTransforms {
+    width: Option<Vec<u32>>,
+    format: Option<Vec<u32>>,
+}
+
+impl RichTextImageTransforms {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(widths) = &self.width {
+            if widths.is_empty() || widths.iter().any(|&w| w == 0) {
+                return Err("Width must be greater than 0".into());
+            }
+        }
+        if let Some(formats) = &self.format {
+            if formats.is_empty() {
+                return Err("At least one format must be specified".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+pub struct MarkdownImageConfig {
+    d1_table: String,
+    backend: ImageBackend,
+    transforms: RichTextImageTransforms,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
@@ -148,13 +175,12 @@ pub enum Attr {
         #[serde(default)]
         required: bool,
         backend: ImageBackend,
-    },
-    Images {
-        backend: ImageBackend,
+        transform: Option<ImageTransform>,
     },
     Markdown {
         #[serde(default)]
         embed_svg: bool,
+        image: MarkdownImageConfig,
     },
     Set {
         #[serde(default)]
@@ -166,16 +192,22 @@ pub enum Attr {
 impl Attr {
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Attr::String { .. } => Ok(()),
-            Attr::Integer { .. } => Ok(()),
-            Attr::Boolean { .. } => Ok(()),
-            Attr::Datetime { .. } => Ok(()),
-            Attr::Id {} => Ok(()),
-            Attr::Json { .. } => Ok(()),
-            Attr::Image { backend, .. } => backend.validate(),
-            Attr::Images { backend } => backend.validate(),
-            Attr::Markdown { .. } => Ok(()),
-            Attr::Set { .. } => Ok(()),
+            Self::String { .. } => Ok(()),
+            Self::Integer { .. } => Ok(()),
+            Self::Boolean { .. } => Ok(()),
+            Self::Datetime { .. } => Ok(()),
+            Self::Id {} => Ok(()),
+            Self::Json { .. } => Ok(()),
+            Self::Image {
+                backend, transform, ..
+            } => {
+                if let Some(transform) = transform {
+                    transform.validate()?;
+                }
+                backend.validate()
+            }
+            Self::Markdown { .. } => Ok(()),
+            Self::Set { .. } => Ok(()),
         }
     }
 }
