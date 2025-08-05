@@ -1,0 +1,40 @@
+[package]
+name = "nothing-cms"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["r2"]
+r2 = ["dep:aws-config", "dep:aws-sdk-s3"]
+
+[dependencies]
+anyhow = "1.0.98"
+aws-config = { version = "1.8", optional = true }
+aws-sdk-s3 = { version = "1", optional = true }
+
+blake3 = { version = "1.8", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+glob = "0.3"
+image = "0.25"
+katex = "0.4"
+liquid = "0.26"
+pulldown-cmark = "0.13"
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+smol = "2"
+surf = { version = "2", default-features = false, features = [
+    "h1-client-rustls",
+] }
+syntect = "5"
+thiserror = "2"
+tracing = { version = "0.1.41", features = ["valuable", "async-await"] }
+tracing-subscriber = { version = "0.3.19", features = [
+    "valuable",
+    "env-filter",
+] }
+usvg = "0.45"
+valuable = { version = "0.1.1", features = ["derive"] }
+winnow = "0.7"
