@@ -1,6 +1,8 @@
 pub mod markdown;
 
-use crate::rich_text::MdRoot;
+use std::collections::HashSet;
+
+use crate::rich_text::{Extracted, MdAst, MdRoot};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -8,6 +10,19 @@ pub enum Error {
     InvalidFrontmatter(String),
     #[error("Frontmatter not found")]
     FrontmatterNotFound,
+}
+
+fn extract_image_src(ast: &MdAst) -> Vec<String> {
+    match ast {
+        MdAst::Text(_) => Vec::new(),
+        MdAst::Raw(_) => Vec::new(),
+        MdAst::Lazy {
+            extracted: Extracted::Image { url, .. },
+            ..
+        } => vec![url.to_string()],
+        MdAst::Lazy { children, .. } => children.iter().flat_map(extract_image_src).collect(),
+        MdAst::Eager { children, .. } => children.iter().flat_map(extract_image_src).collect(),
+    }
 }
 
 pub trait Parser {
@@ -18,7 +33,8 @@ pub trait Parser {
         root.frontmatter.ok_or(Error::FrontmatterNotFound)
     }
 
-    fn extract_image_srcs(&self) -> Vec<String> {
-        unimplemented!()
+    fn extract_image_srcs(&self, src: &str) -> Result<HashSet<String>, Error> {
+        let root = self.parse(src)?;
+        Ok(root.children.iter().flat_map(extract_image_src).collect())
     }
 }

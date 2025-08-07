@@ -1,7 +1,9 @@
 blog:
-  d1:
+  backend:
+    type: cloudflare
     database_id: "0000000000000000000001"
     table: "blogs"
+    image_table: "blog_images"
   schema:
     id:
       type: id
@@ -9,7 +11,6 @@ blog:
       type: markdown
       embed_svg: true
       image:
-        d1_table: images
         backend:
           type: r2
           zone: assets.blog.example.com

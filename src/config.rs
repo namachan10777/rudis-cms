@@ -142,7 +142,6 @@ impl RichTextImageTransforms {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 pub struct MarkdownImageConfig {
-    d1_table: String,
     backend: ImageBackend,
     transforms: RichTextImageTransforms,
 }
@@ -219,8 +218,18 @@ pub struct D1Config {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Backend {
+    Cloudflare {
+        database_id: String,
+        table: String,
+        image_table: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 pub struct CollectionConfig {
-    pub d1: D1Config,
+    pub backend: Backend,
     pub schema: HashMap<String, Attr>,
 }
 
