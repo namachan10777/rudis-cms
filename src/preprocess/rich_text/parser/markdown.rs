@@ -7,12 +7,15 @@ use pulldown_cmark::{
 };
 use tracing::warn;
 
-use crate::rich_text::{
-    AlertKind, AttrValue, Extracted, MdAst, MdRoot, Name, codeblock::meta_parser::CodeblockMeta,
-    parser::Error,
-};
+use super::super::{AlertKind, AttrValue, Expanded, Name, RawExtracted, RichTextDocument};
 
 pub struct MarkdownParser {}
+
+impl Default for MarkdownParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MarkdownParser {
     pub fn new() -> MarkdownParser {
@@ -24,7 +27,7 @@ struct ParserImpl<'src> {
     parser: pulldown_cmark::Parser<'src>,
     lookahead: Vec<Event<'src>>,
     frontmatter: Option<Result<serde_json::Value, String>>,
-    footnote_definitions: HashMap<String, MdAst>,
+    footnote_definitions: HashMap<String, Expanded<RawExtracted>>,
 }
 
 impl<'src> ParserImpl<'src> {
@@ -32,10 +35,7 @@ impl<'src> ParserImpl<'src> {
         if let Some(event) = self.lookahead.pop() {
             return Some(event);
         }
-        match self.parser.next() {
-            Some(event) => Some(event),
-            None => None,
-        }
+        self.parser.next()
     }
 
     fn return_event(&mut self, event: Event<'src>) {
@@ -43,10 +43,10 @@ impl<'src> ParserImpl<'src> {
     }
 }
 
-const KATEX_DISPLAY_MATH_OPTS: LazyLock<katex::Opts> =
+static KATEX_DISPLAY_MATH_OPTS: LazyLock<katex::Opts> =
     LazyLock::new(|| katex::Opts::builder().display_mode(true).build().unwrap());
 
-const KATEX_INLINE_MATH_OPTS: LazyLock<katex::Opts> =
+static KATEX_INLINE_MATH_OPTS: LazyLock<katex::Opts> =
     LazyLock::new(|| katex::Opts::builder().display_mode(false).build().unwrap());
 
 fn is_end<'src>(tag: &Tag<'src>, event: &Event<'src>) -> bool {
@@ -87,12 +87,12 @@ fn is_end<'src>(tag: &Tag<'src>, event: &Event<'src>) -> bool {
     )
 }
 
-fn text_content(children: Vec<MdAst>) -> String {
+fn text_content(children: Vec<Expanded<RawExtracted>>) -> String {
     children
         .into_iter()
         .filter_map(|child| match child {
-            MdAst::Text(text) => Some(text),
-            MdAst::Eager { children, .. } => Some(text_content(children)),
+            Expanded::Text(text) => Some(text),
+            Expanded::Eager { children, .. } => Some(text_content(children)),
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -109,7 +109,7 @@ fn heading_to_id(content: &str) -> String {
 fn parse_until_next_heading<'src>(
     current_level: HeadingLevel,
     parser: &mut ParserImpl<'src>,
-) -> Vec<MdAst> {
+) -> Vec<Expanded<RawExtracted>> {
     let mut children = Vec::new();
     while let Some(event) = parser.next_event() {
         if matches!(event, Event::Start(Tag::Heading { level, .. }) if level >= current_level) {
@@ -117,7 +117,7 @@ fn parse_until_next_heading<'src>(
             break;
         }
         parser.return_event(event);
-        children.extend(parse(parser));
+        children.extend(parse_element(parser));
     }
     children
 }
@@ -155,13 +155,13 @@ impl<T> Iterator for MaybeMany<T> {
     }
 }
 
-fn write_item_centering(aligns: &[Alignment], children: &mut [MdAst]) {
+fn write_item_centering(aligns: &[Alignment], children: &mut [Expanded<RawExtracted>]) {
     for row in children {
-        let MdAst::Eager { children, .. } = row else {
+        let Expanded::Eager { children, .. } = row else {
             unreachable!()
         };
         for (td, align) in children.iter_mut().zip(aligns.iter()) {
-            let MdAst::Eager { attrs, .. } = td else {
+            let Expanded::Eager { attrs, .. } = td else {
                 unreachable!()
             };
             match align {
@@ -180,8 +180,8 @@ fn write_item_centering(aligns: &[Alignment], children: &mut [MdAst]) {
     }
 }
 
-fn fix_thead(thead: MdAst) -> MdAst {
-    let MdAst::Eager {
+fn fix_thead(thead: Expanded<RawExtracted>) -> Expanded<RawExtracted> {
+    let Expanded::Eager {
         attrs, children, ..
     } = thead
     else {
@@ -191,13 +191,13 @@ fn fix_thead(thead: MdAst) -> MdAst {
     let children = children
         .into_iter()
         .map(|td| {
-            let MdAst::Eager {
+            let Expanded::Eager {
                 attrs, children, ..
             } = td
             else {
                 unreachable!();
             };
-            MdAst::Eager {
+            Expanded::Eager {
                 tag: "th".into(),
                 attrs,
                 children,
@@ -205,10 +205,10 @@ fn fix_thead(thead: MdAst) -> MdAst {
         })
         .collect();
 
-    MdAst::Eager {
+    Expanded::Eager {
         tag: "thead".into(),
         attrs,
-        children: vec![MdAst::Eager {
+        children: vec![Expanded::Eager {
             tag: "tr".into(),
             attrs: hashmap! {},
             children,
@@ -216,19 +216,22 @@ fn fix_thead(thead: MdAst) -> MdAst {
     }
 }
 
-fn construct_table(aligns: &[Alignment], mut children: Vec<MdAst>) -> MdAst {
+fn construct_table(
+    aligns: &[Alignment],
+    mut children: Vec<Expanded<RawExtracted>>,
+) -> Expanded<RawExtracted> {
     write_item_centering(aligns, &mut children);
     let mut children = children.into_iter();
 
     let thead = children.next().expect("unexpected markdown table syntax?");
     let thead = fix_thead(thead);
 
-    MdAst::Eager {
+    Expanded::Eager {
         tag: "table".into(),
         attrs: hashmap! {},
         children: vec![
             thead,
-            MdAst::Eager {
+            Expanded::Eager {
                 tag: "tbody".into(),
                 attrs: hashmap! {},
                 children: children.collect(),
@@ -237,17 +240,20 @@ fn construct_table(aligns: &[Alignment], mut children: Vec<MdAst>) -> MdAst {
     }
 }
 
-fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMany<MdAst> {
+fn parse_spanned<'src>(
+    parser: &mut ParserImpl<'src>,
+    tag: Tag<'src>,
+) -> MaybeMany<Expanded<RawExtracted>> {
     let mut children = Vec::new();
     while let Some(event) = parser.next_event() {
         if is_end(&tag, &event) {
             break;
         }
         parser.return_event(event);
-        children.extend(parse(parser));
+        children.extend(parse_element(parser));
     }
     match tag {
-        Tag::BlockQuote(None) => MaybeMany::one(MdAst::Eager {
+        Tag::BlockQuote(None) => MaybeMany::one(Expanded::Eager {
             tag: "blockquote".into(),
             attrs: hashmap! {},
             children,
@@ -260,35 +266,35 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
                 BlockQuoteKind::Warning => AlertKind::Warning,
                 BlockQuoteKind::Tip => AlertKind::Tip,
             };
-            MaybeMany::one(MdAst::Lazy {
-                extracted: Extracted::Alert { kind },
+            MaybeMany::one(Expanded::Lazy {
+                extracted: RawExtracted::Alert { kind },
                 children,
             })
         }
-        Tag::CodeBlock(CodeBlockKind::Indented) => MaybeMany::one(MdAst::Lazy {
-            extracted: Extracted::Codeblock {
+        Tag::CodeBlock(CodeBlockKind::Indented) => MaybeMany::one(Expanded::Lazy {
+            extracted: RawExtracted::Codeblock {
                 meta: Default::default(),
             },
             children,
         }),
         Tag::CodeBlock(CodeBlockKind::Fenced(meta)) => {
             let meta = meta.parse().unwrap_or_default();
-            MaybeMany::one(MdAst::Lazy {
-                extracted: Extracted::Codeblock { meta },
+            MaybeMany::one(Expanded::Lazy {
+                extracted: RawExtracted::Codeblock { meta },
                 children,
             })
         }
-        Tag::DefinitionList => MaybeMany::one(MdAst::Eager {
+        Tag::DefinitionList => MaybeMany::one(Expanded::Eager {
             tag: "ul".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::DefinitionListTitle => MaybeMany::one(MdAst::Eager {
+        Tag::DefinitionListTitle => MaybeMany::one(Expanded::Eager {
             tag: "dfn".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::DefinitionListDefinition => MaybeMany::one(MdAst::Eager {
+        Tag::DefinitionListDefinition => MaybeMany::one(Expanded::Eager {
             tag: "p".into(),
             attrs: hashmap! {"class".into() => "dfn-description".into()},
             children,
@@ -296,7 +302,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
         Tag::FootnoteDefinition(id) => {
             parser.footnote_definitions.insert(
                 id.to_string(),
-                MdAst::Eager {
+                Expanded::Eager {
                     tag: "p".into(),
                     attrs: hashmap! {},
                     children,
@@ -330,16 +336,16 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
                     ("id".into(), id),
                 ])
                 .collect::<HashMap<Name, AttrValue>>();
-            let heading = Extracted::Heading {
+            let heading = RawExtracted::Heading {
                 level: level as u8,
                 attrs,
             };
-            let mut body = vec![MdAst::Lazy {
+            let mut body = vec![Expanded::Lazy {
                 extracted: heading,
                 children,
             }];
             body.extend(parse_until_next_heading(level, parser));
-            MaybeMany::one(MdAst::Eager {
+            MaybeMany::one(Expanded::Eager {
                 tag: "section".into(),
                 attrs: hashmap! {},
                 children: body,
@@ -350,8 +356,8 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             title,
             id,
             ..
-        } => MaybeMany::one(MdAst::Lazy {
-            extracted: Extracted::Image {
+        } => MaybeMany::one(Expanded::Lazy {
+            extracted: RawExtracted::Image {
                 title: title.to_string(),
                 id: id.to_string(),
                 url: dest_url.to_string(),
@@ -361,17 +367,17 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
         Tag::HtmlBlock => MaybeMany::many(children),
         Tag::List(first_number) => {
             let e = match first_number {
-                None => MdAst::Eager {
+                None => Expanded::Eager {
                     tag: "ul".into(),
                     attrs: hashmap! {},
                     children,
                 },
-                Some(1) => MdAst::Eager {
+                Some(1) => Expanded::Eager {
                     tag: "ol".into(),
                     attrs: hashmap! {},
                     children,
                 },
-                Some(n) => MdAst::Eager {
+                Some(n) => Expanded::Eager {
                     tag: "ol".into(),
                     attrs: hashmap! {"start".into() => (n as i64).into()},
                     children,
@@ -379,7 +385,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             };
             MaybeMany::one(e)
         }
-        Tag::Item => MaybeMany::one(MdAst::Eager {
+        Tag::Item => MaybeMany::one(Expanded::Eager {
             tag: "li".into(),
             attrs: hashmap! {},
             children,
@@ -398,48 +404,48 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             };
             MaybeMany::none()
         }
-        Tag::Paragraph => MaybeMany::one(MdAst::Eager {
+        Tag::Paragraph => MaybeMany::one(Expanded::Eager {
             tag: "p".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::Emphasis => MaybeMany::one(MdAst::Eager {
+        Tag::Emphasis => MaybeMany::one(Expanded::Eager {
             tag: "em".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::Strikethrough => MaybeMany::one(MdAst::Eager {
+        Tag::Strikethrough => MaybeMany::one(Expanded::Eager {
             tag: "s".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::Strong => MaybeMany::one(MdAst::Eager {
+        Tag::Strong => MaybeMany::one(Expanded::Eager {
             tag: "strong".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::Subscript => MaybeMany::one(MdAst::Eager {
+        Tag::Subscript => MaybeMany::one(Expanded::Eager {
             tag: "sub".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::Superscript => MaybeMany::one(MdAst::Eager {
+        Tag::Superscript => MaybeMany::one(Expanded::Eager {
             tag: "sup".into(),
             attrs: hashmap! {},
             children,
         }),
         Tag::Table(aligns) => MaybeMany::one(construct_table(&aligns, children)),
-        Tag::TableCell => MaybeMany::one(MdAst::Eager {
+        Tag::TableCell => MaybeMany::one(Expanded::Eager {
             tag: "td".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::TableHead => MaybeMany::one(MdAst::Eager {
+        Tag::TableHead => MaybeMany::one(Expanded::Eager {
             tag: "thead".into(),
             attrs: hashmap! {},
             children,
         }),
-        Tag::TableRow => MaybeMany::one(MdAst::Eager {
+        Tag::TableRow => MaybeMany::one(Expanded::Eager {
             tag: "tr".into(),
             attrs: hashmap! {},
             children,
@@ -451,24 +457,24 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             id,
         } => {
             let link_type = match link_type {
-                LinkType::Autolink => crate::rich_text::LinkType::Autolink,
+                LinkType::Autolink => super::super::LinkType::Autolink,
                 LinkType::Collapsed
                 | LinkType::Reference
                 | LinkType::Shortcut
-                | LinkType::Inline => crate::rich_text::LinkType::Normal,
+                | LinkType::Inline => super::super::LinkType::Normal,
                 LinkType::CollapsedUnknown
                 | LinkType::ShortcutUnknown
-                | LinkType::ReferenceUnknown => crate::rich_text::LinkType::Broken,
-                LinkType::Email => crate::rich_text::LinkType::Email,
-                LinkType::WikiLink { .. } => crate::rich_text::LinkType::Wikilink,
+                | LinkType::ReferenceUnknown => super::super::LinkType::Broken,
+                LinkType::Email => super::super::LinkType::Email,
+                LinkType::WikiLink { .. } => super::super::LinkType::Wikilink,
             };
-            let extracted = Extracted::Link {
+            let extracted = RawExtracted::Link {
                 link_type,
                 dest_url: dest_url.to_string(),
                 title: title.to_string(),
                 id: id.to_string(),
             };
-            MaybeMany::one(MdAst::Lazy {
+            MaybeMany::one(Expanded::Lazy {
                 extracted,
                 children,
             })
@@ -476,79 +482,79 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
     }
 }
 
-fn parse<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<MdAst> {
+fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawExtracted>> {
     let Some(event) = parser.next_event() else {
         return MaybeMany::none();
     };
     let raw = match event {
-        Event::Text(text) => MdAst::Text(text.into_string()),
-        Event::Html(html) => MdAst::Raw(html.into_string()),
-        Event::InlineHtml(html) => MdAst::Raw(html.into_string()),
-        Event::Code(code) => MdAst::Eager {
+        Event::Text(text) => Expanded::Text(text.into_string()),
+        Event::Html(html) => Expanded::Raw(html.into_string()),
+        Event::InlineHtml(html) => Expanded::Raw(html.into_string()),
+        Event::Code(code) => Expanded::Eager {
             tag: "code".into(),
             attrs: hashmap! {},
-            children: vec![MdAst::Text(code.into_string())],
+            children: vec![Expanded::Text(code.into_string())],
         },
         Event::DisplayMath(math) => {
             match katex::render_with_opts(&math, KATEX_DISPLAY_MATH_OPTS.as_ref()) {
-                Ok(katex) => MdAst::Eager {
+                Ok(katex) => Expanded::Eager {
                     tag: "div".into(),
                     attrs: hashmap! {},
-                    children: vec![MdAst::Raw(katex)],
+                    children: vec![Expanded::Raw(katex)],
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
-                    MdAst::Lazy {
-                        extracted: Extracted::Codeblock {
-                            meta: CodeblockMeta {
+                    Expanded::Lazy {
+                        extracted: RawExtracted::Codeblock {
+                            meta: crate::preprocess::rich_text::CodeblockMeta {
                                 lang: Some("tex".into()),
                                 attrs: Default::default(),
                             },
                         },
-                        children: vec![MdAst::Text(math.to_string())],
+                        children: vec![Expanded::Text(math.to_string())],
                     }
                 }
             }
         }
         Event::InlineMath(math) => {
             match katex::render_with_opts(&math, KATEX_INLINE_MATH_OPTS.as_ref()) {
-                Ok(katex) => MdAst::Eager {
+                Ok(katex) => Expanded::Eager {
                     tag: "span".into(),
                     attrs: hashmap! {},
-                    children: vec![MdAst::Raw(katex)],
+                    children: vec![Expanded::Raw(katex)],
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
-                    MdAst::Eager {
+                    Expanded::Eager {
                         tag: "span".into(),
                         attrs: hashmap! {},
-                        children: vec![MdAst::Text(math.into_string())],
+                        children: vec![Expanded::Text(math.into_string())],
                     }
                 }
             }
         }
-        Event::FootnoteReference(r) => MdAst::Lazy {
-            extracted: Extracted::FootnoteReference {
+        Event::FootnoteReference(r) => Expanded::Lazy {
+            extracted: RawExtracted::FootnoteReference {
                 id: r.into_string(),
             },
             children: Default::default(),
         },
-        Event::HardBreak => MdAst::Eager {
+        Event::HardBreak => Expanded::Eager {
             tag: "br".into(),
             attrs: hashmap! {},
             children: vec![],
         },
-        Event::Rule => MdAst::Eager {
+        Event::Rule => Expanded::Eager {
             tag: "hr".into(),
             attrs: hashmap! {},
             children: vec![],
         },
-        Event::SoftBreak => MdAst::Eager {
+        Event::SoftBreak => Expanded::Eager {
             tag: "wbr".into(),
             attrs: hashmap! {},
             children: vec![],
         },
-        Event::TaskListMarker(marker) => MdAst::Eager {
+        Event::TaskListMarker(marker) => Expanded::Eager {
             tag: "input".into(),
             attrs: hashmap! {
                 "type".to_string() => "checkbox".into(),
@@ -563,33 +569,25 @@ fn parse<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<MdAst> {
     MaybeMany::one(raw)
 }
 
-impl super::Parser for MarkdownParser {
-    fn parse(&self, src: &str) -> Result<MdRoot, Error> {
-        let options = pulldown_cmark::Options::all()
-            .difference(pulldown_cmark::Options::ENABLE_OLD_FOOTNOTES);
-        let mut parser = ParserImpl {
-            lookahead: Default::default(),
-            parser: pulldown_cmark::Parser::new_ext(src, options),
-            frontmatter: None,
-            footnote_definitions: Default::default(),
-        };
-        let mut children = Vec::new();
-        loop {
-            let elements = parse(&mut parser);
-            if elements.is_empty() {
-                break;
-            }
-            children.extend(elements);
+pub fn parse(src: &str) -> RichTextDocument<RawExtracted> {
+    let options =
+        pulldown_cmark::Options::all().difference(pulldown_cmark::Options::ENABLE_OLD_FOOTNOTES);
+    let mut parser = ParserImpl {
+        lookahead: Default::default(),
+        parser: pulldown_cmark::Parser::new_ext(src, options),
+        frontmatter: None,
+        footnote_definitions: Default::default(),
+    };
+    let mut children = Vec::new();
+    loop {
+        let elements = parse_element(&mut parser);
+        if elements.is_empty() {
+            break;
         }
-        let frontmatter = if let Some(frontmatter) = parser.frontmatter {
-            Some(frontmatter.map_err(|e| Error::InvalidFrontmatter(e.to_string()))?)
-        } else {
-            None
-        };
-        Ok(MdRoot {
-            children,
-            frontmatter,
-            footnote_definitions: parser.footnote_definitions,
-        })
+        children.extend(elements);
+    }
+    RichTextDocument {
+        children,
+        footnote_definitions: parser.footnote_definitions,
     }
 }

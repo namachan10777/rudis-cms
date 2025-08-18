@@ -25,18 +25,10 @@ pub enum Error {
     DeserializeRecord(serde_json::Error),
 }
 
+#[derive(Default)]
 pub struct QueryBuilder {
     pub statements: Vec<String>,
     pub params: Vec<String>,
-}
-
-impl Default for QueryBuilder {
-    fn default() -> Self {
-        QueryBuilder {
-            statements: Vec::new(),
-            params: Vec::new(),
-        }
-    }
 }
 
 pub trait Bindable {
@@ -299,14 +291,14 @@ impl<'de> serde::de::Deserializer<'de> for D1Value {
 }
 
 pub fn deserialize_records<D>(
-    results: &Vec<HashMap<String, D1Value>>,
+    results: &[HashMap<String, D1Value>],
 ) -> Result<Vec<D>, serde_json::Error>
 where
     D: DeserializeOwned,
 {
     // FIXME
     results
-        .into_iter()
+        .iter()
         .map(|row| {
             serde_json::from_value::<D>(serde_json::Value::Object(
                 row.iter()
@@ -383,9 +375,7 @@ impl D1Response {
         let Some(result) = self.results.get(index) else {
             return Err(Error::ResultNotFound(index));
         };
-        result
-            .deserialize()
-            .map_err(|e| e.fill_error_details(&self))
+        result.deserialize().map_err(|e| e.fill_error_details(self))
     }
 
     pub fn check(&self) -> Result<(), Error> {

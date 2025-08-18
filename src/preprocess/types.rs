@@ -1,15 +1,8 @@
-use std::{
-    borrow::Borrow, collections::HashMap, convert::Infallible, hash::Hash, ops::Deref, str::FromStr,
-};
+use std::{borrow::Borrow, convert::Infallible, ops::Deref, str::FromStr};
 
 use pulldown_cmark::CowStr;
 use serde::{Deserialize, Serialize};
 use valuable::Valuable;
-
-use crate::rich_text::codeblock::meta_parser::CodeblockMeta;
-
-pub mod codeblock;
-pub mod parser;
 
 #[derive(Debug, Clone)]
 pub enum AttrValue {
@@ -22,7 +15,7 @@ pub enum AttrValue {
 impl AttrValue {
     pub fn to_str(&self) -> Option<&str> {
         match self {
-            Self::OwnedStr(s) => Some(&*s),
+            Self::OwnedStr(s) => Some(s),
             Self::StaticStr(s) => Some(s),
             _ => None,
         }
@@ -173,7 +166,7 @@ pub enum Name {
     Owned(String),
 }
 
-impl Hash for Name {
+impl std::hash::Hash for Name {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Self::Static(s) => s.hash(state),
@@ -286,92 +279,4 @@ impl Borrow<str> for Name {
     fn borrow(&self) -> &str {
         self.as_ref()
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Valuable)]
-#[serde(rename_all = "snake_case")]
-pub enum AlertKind {
-    Caution,
-    Important,
-    Note,
-    Warning,
-    Tip,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Valuable)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum LinkType {
-    Autolink,
-    Wikilink,
-    Normal,
-    Email,
-    Broken,
-}
-
-#[derive(Debug, Clone, Valuable)]
-pub enum Extracted {
-    FootnoteReference {
-        id: String,
-    },
-    Alert {
-        kind: AlertKind,
-    },
-    Codeblock {
-        meta: CodeblockMeta,
-    },
-    Heading {
-        level: u8,
-        attrs: HashMap<Name, AttrValue>,
-    },
-    Image {
-        title: String,
-        id: String,
-        url: String,
-    },
-    Link {
-        link_type: LinkType,
-        dest_url: String,
-        title: String,
-        id: String,
-    },
-}
-
-#[derive(Debug, Clone, Valuable)]
-pub enum MdAst {
-    Raw(String),
-    Eager {
-        tag: Name,
-        attrs: HashMap<String, AttrValue>,
-        children: Vec<MdAst>,
-    },
-    Text(String),
-    Lazy {
-        extracted: Extracted,
-        children: Vec<MdAst>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub struct MdRoot {
-    pub children: Vec<MdAst>,
-    pub frontmatter: Option<serde_json::Value>,
-    pub footnote_definitions: HashMap<String, MdAst>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Valuable)]
-#[serde(rename_all = "snake_case")]
-pub enum Cooked {
-    Eager {
-        tag: Name,
-        attrs: HashMap<String, AttrValue>,
-        children: String,
-    },
-    Lazy {
-        tag: Name,
-        attrs: HashMap<String, AttrValue>,
-        children: Vec<Cooked>,
-    },
-    Text {
-        text: String,
-    },
 }

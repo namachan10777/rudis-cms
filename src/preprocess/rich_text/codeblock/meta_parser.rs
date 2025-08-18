@@ -1,3 +1,4 @@
+use crate::preprocess::types::{AttrValue, Name};
 use std::{collections::HashMap, str::FromStr};
 
 use valuable::Valuable;
@@ -7,8 +8,6 @@ use winnow::{
     combinator::{alt, opt, separated_pair},
     token::take_while,
 };
-
-use crate::rich_text::{AttrValue, Name};
 
 #[derive(Debug, thiserror::Error)]
 #[error("failed to parse codeblock meta {0}")]
@@ -106,9 +105,9 @@ fn parse_single_quoted_string(input: &mut &str) -> ParseResult<String> {
     Ok(result)
 }
 
-fn attribute_value<'input>(input: &mut &'input str) -> ParseResult<AttrValue> {
+fn attribute_value(input: &mut &str) -> ParseResult<AttrValue> {
     alt((
-        quoted_string.map(|s| AttrValue::OwnedStr(s)),
+        quoted_string.map(AttrValue::OwnedStr),
         identifier.map(|s: &str| {
             if s == "true" {
                 AttrValue::Bool(true)
@@ -124,7 +123,7 @@ fn attribute_value<'input>(input: &mut &'input str) -> ParseResult<AttrValue> {
     .parse_next(input)
 }
 
-fn attribute_with_value<'input>(input: &mut &'input str) -> ParseResult<(String, AttrValue)> {
+fn attribute_with_value(input: &mut &str) -> ParseResult<(String, AttrValue)> {
     separated_pair(
         identifier.map(|s: &str| s.to_string()),
         '=',
@@ -133,17 +132,17 @@ fn attribute_with_value<'input>(input: &mut &'input str) -> ParseResult<(String,
     .parse_next(input)
 }
 
-fn attribute_flag<'input>(input: &mut &'input str) -> ParseResult<(String, AttrValue)> {
+fn attribute_flag(input: &mut &str) -> ParseResult<(String, AttrValue)> {
     identifier
         .map(|s: &str| (s.to_string(), AttrValue::Bool(true)))
         .parse_next(input)
 }
 
-fn attribute<'input>(input: &mut &'input str) -> ParseResult<(String, AttrValue)> {
+fn attribute(input: &mut &str) -> ParseResult<(String, AttrValue)> {
     alt((attribute_with_value, attribute_flag)).parse_next(input)
 }
 
-fn attributes_block<'input>(input: &mut &'input str) -> ParseResult<HashMap<Name, AttrValue>> {
+fn attributes_block(input: &mut &str) -> ParseResult<HashMap<Name, AttrValue>> {
     let _: char = '{'.parse_next(input)?;
     space0.parse_next(input)?;
 
@@ -204,7 +203,7 @@ impl FromStr for CodeblockMeta {
 
 #[cfg(test)]
 mod tests {
-    use crate::rich_text::AttrValue;
+    use crate::preprocess::types::AttrValue;
 
     use super::parse_codeblock_info;
 

@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use syntect::parsing::{SyntaxDefinition, SyntaxSet};
 
 fn load_syntax_set() -> anyhow::Result<SyntaxSet> {
@@ -25,7 +27,7 @@ fn create_syntax_set() -> SyntaxSet {
     }
 }
 
-static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(|| create_syntax_set());
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(create_syntax_set);
 
 pub fn highlight<S: AsRef<str>>(src: &str, lang: &Option<S>) -> Result<String, syntect::Error> {
     use syntect::html::{ClassStyle, ClassedHTMLGenerator};

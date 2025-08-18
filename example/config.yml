@@ -1,24 +1,18 @@
 blog:
+  glob: "**/*.md"
   backend:
     type: cloudflare
-    database_id: "0000000000000000000001"
+    database-id: "0000000000000000000001"
     table: "blogs"
-    image_table: "blog_images"
+    image-table: "blog_images"
   schema:
     id:
       type: id
-    "#body":
+    body:
       type: markdown
       embed_svg: true
-      image:
-        backend:
-          type: r2
-          zone: assets.blog.example.com
-          bucket: blog-assets
-          prefix: blog/images
-        transforms:
-          formats: [webp, avif]
-          width: [480, 720, 1080, 1440, 1920]
+      document_body: true
+      config: {}
     title:
       type: string
       required: true
@@ -30,6 +24,9 @@ blog:
     tags:
       type: set
       item: string
+      backend:
+        type: d1
+        table: blog_tags
     meta:
       type: json
     og_image:

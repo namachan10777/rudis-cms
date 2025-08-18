@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use valuable::Valuable;
 
+use crate::backend::{self, Backend};
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
 #[serde(rename_all = "kebab-case")]
 pub enum RasterImageFormat {
@@ -53,40 +55,6 @@ impl ImageTransform {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 #[serde(rename_all = "kebab-case", tag = "type")]
-pub enum ImageBackend {
-    R2 {
-        zone: String,
-        bucket: String,
-        prefix: Option<String>,
-    },
-}
-
-impl ImageBackend {
-    pub fn validate(&self) -> Result<(), String> {
-        match self {
-            Self::R2 {
-                zone,
-                bucket,
-                prefix,
-            } => {
-                if zone.is_empty() || bucket.is_empty() {
-                    return Err("R2 zone and bucket must not be empty".into());
-                }
-                if prefix
-                    .as_ref()
-                    .map(|prefix| prefix.starts_with("/") || prefix.ends_with("/"))
-                    .unwrap_or_default()
-                {
-                    return Err("R2 prefix must not start or end with a slash".into());
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
 pub struct RichTextImageBackend {
     zone: String,
     bucket: String,
@@ -126,46 +94,53 @@ pub struct RichTextImageTransforms {
 
 impl RichTextImageTransforms {
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(widths) = &self.width {
-            if widths.is_empty() || widths.iter().any(|&w| w == 0) {
+        if let Some(widths) = &self.width
+            && (widths.is_empty() || widths.contains(&0)) {
                 return Err("Width must be greater than 0".into());
             }
-        }
-        if let Some(formats) = &self.format {
-            if formats.is_empty() {
+        if let Some(formats) = &self.format
+            && formats.is_empty() {
                 return Err("At least one format must be specified".into());
             }
-        }
         Ok(())
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-pub struct MarkdownImageConfig {
-    backend: ImageBackend,
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MarkdownImageConfig<I> {
+    backend: I,
     transforms: RichTextImageTransforms,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case", tag = "type")]
-pub enum Attr {
+pub enum FieldDef<B: Backend> {
     String {
         #[serde(default)]
         required: bool,
+        #[serde(default)]
+        index: bool,
     },
     Integer {
         #[serde(default)]
         required: bool,
+        #[serde(default)]
+        index: bool,
     },
     Boolean {
         #[serde(default)]
         required: bool,
+        #[serde(default)]
+        index: bool,
     },
     Datetime {
         #[serde(default)]
         required: bool,
+        #[serde(default)]
+        index: bool,
     },
     Id {},
+    Hash {},
     Json {
         #[serde(default)]
         required: bool,
@@ -173,42 +148,61 @@ pub enum Attr {
     Image {
         #[serde(default)]
         required: bool,
-        backend: ImageBackend,
+        backend: B::ImageBackendConfig,
         transform: Option<ImageTransform>,
+    },
+    Blob {
+        #[serde(default)]
+        required: bool,
+        backend: B::BlobBackendConfig,
     },
     Markdown {
         #[serde(default)]
         embed_svg: bool,
-        image: MarkdownImageConfig,
+        #[serde(default)]
+        document_body: bool,
+        #[serde(default)]
+        required: bool,
+        config: B::RichTextConfig,
     },
     Set {
         #[serde(default)]
         at_least_once: bool,
         item: SetItemType,
+        backend: B::SetBackendConfig,
     },
 }
 
-impl Attr {
-    pub fn validate(&self) -> Result<(), String> {
+impl<B: Backend> FieldDef<B> {
+    pub fn is_required(&self) -> bool {
         match self {
-            Self::String { .. } => Ok(()),
-            Self::Integer { .. } => Ok(()),
-            Self::Boolean { .. } => Ok(()),
-            Self::Datetime { .. } => Ok(()),
-            Self::Id {} => Ok(()),
-            Self::Json { .. } => Ok(()),
-            Self::Image {
-                backend, transform, ..
-            } => {
-                if let Some(transform) = transform {
-                    transform.validate()?;
-                }
-                backend.validate()
-            }
-            Self::Markdown { .. } => Ok(()),
-            Self::Set { .. } => Ok(()),
+            Self::Boolean { required, .. } => *required,
+            Self::Datetime { required, .. } => *required,
+            Self::Id {} => true,
+            Self::Hash {} => true,
+            Self::Image { required, .. } => *required,
+            Self::Integer { required, .. } => *required,
+            Self::Json { required, .. } => *required,
+            Self::Markdown { required, .. } => *required,
+            Self::Set { at_least_once, .. } => *at_least_once,
+            Self::String { required, .. } => *required,
+            Self::Blob { required, .. } => *required,
         }
     }
+
+    pub fn needs_index(&self) -> bool {
+        match self {
+            Self::Boolean { index, .. } => *index,
+            Self::Datetime { index, .. } => *index,
+            Self::Integer { index, .. } => *index,
+            Self::String { index, .. } => *index,
+            _ => false,
+        }
+    }
+}
+
+pub trait ImageBackendConfig {
+    fn validate(&self) -> Result<(), String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
@@ -219,30 +213,15 @@ pub struct D1Config {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Backend {
-    Cloudflare {
-        database_id: String,
-        table: String,
-        image_table: String,
-    },
+pub enum BackendVariants {
+    Cloudflare(backend::cloudflare::BackendConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct CollectionConfig {
-    pub backend: Backend,
-    pub schema: HashMap<String, Attr>,
-}
-
-impl CollectionConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        for (name, attr) in &self.schema {
-            if name.is_empty() {
-                return Err("Attribute names must not be empty".into());
-            }
-            attr.validate()?;
-        }
-        Ok(())
-    }
+    pub backend: BackendVariants,
+    pub schema: serde_json::Value,
+    pub glob: String,
 }
 
 pub type Config = HashMap<String, CollectionConfig>;
