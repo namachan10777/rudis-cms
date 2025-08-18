@@ -9,7 +9,7 @@ use maplit::hashmap;
 
 use crate::preprocess::{
     imagetool,
-    rich_text::{self, Expanded, LinkType, transform::isolated_url::LinkCard},
+    rich_text::{self, Expanded, LinkType, raw_to_expanded, transform::isolated_url::LinkCard},
 };
 
 use super::{RawExtracted, RichTextDocument, Transformed};
@@ -70,7 +70,6 @@ fn analyze(ctx: &mut Extracted, src: &Expanded<RawExtracted>) {
         }
         Expanded::Eager { children, .. } => children.iter().for_each(|child| analyze(ctx, child)),
         Expanded::Text(_) => {}
-        Expanded::Raw(_) => {}
     }
 }
 
@@ -129,7 +128,6 @@ fn transform_impl(
 ) -> Expanded<rich_text::Extracted> {
     match tree {
         Expanded::Text(text) => Expanded::Text(text),
-        Expanded::Raw(raw) => Expanded::Raw(raw),
         Expanded::Eager {
             tag,
             children,
@@ -204,7 +202,7 @@ fn transform_impl(
                     children: vec![Expanded::Eager {
                         tag: "code".into(),
                         attrs: hashmap! {},
-                        children: vec![Expanded::Raw(content)],
+                        children: raw_to_expanded(&content),
                     }],
                 }
             }
@@ -256,7 +254,6 @@ fn transform_impl(
                         children: Default::default(),
                     },
                     Some(imagetool::Image::Svg {
-                        raw,
                         width,
                         height,
                         mut attrs,
@@ -268,18 +265,19 @@ fn transform_impl(
                             Expanded::Eager {
                                 tag: "svg".into(),
                                 attrs,
-                                children: vec![Expanded::Raw(inner_content)],
+                                children: raw_to_expanded(&inner_content),
                             }
                         } else {
                             Expanded::Lazy {
                                 extracted: rich_text::Extracted::VectorImage {
-                                    raw,
                                     width: width as _,
                                     height: height as _,
-                                    attrs,
-                                    inner_content,
+                                    attrs: attrs
+                                        .into_iter()
+                                        .map(|(name, value)| (name.into(), value))
+                                        .collect(),
                                 },
-                                children: Default::default(),
+                                children: raw_to_expanded(&inner_content),
                             }
                         }
                     }

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use valuable::Valuable;
 
 use crate::preprocess::rich_text::transform::isolated_url::LinkCard;
@@ -71,11 +72,9 @@ pub enum Extracted {
         id: String,
     },
     VectorImage {
-        raw: String,
         width: u32,
         height: u32,
-        attrs: HashMap<String, AttrValue>,
-        inner_content: String,
+        attrs: HashMap<Name, AttrValue>,
     },
     Codeblock {
         title: Option<String>,
@@ -94,10 +93,9 @@ pub enum Extracted {
 
 #[derive(Debug, Clone)]
 pub enum Expanded<E> {
-    Raw(String),
     Eager {
         tag: Name,
-        attrs: HashMap<String, AttrValue>,
+        attrs: HashMap<Name, AttrValue>,
         children: Vec<Expanded<E>>,
     },
     Text(String),
@@ -105,6 +103,59 @@ pub enum Expanded<E> {
         extracted: E,
         children: Vec<Expanded<E>>,
     },
+}
+
+pub(crate) fn raw_to_expanded<E>(src: &str) -> Vec<Expanded<E>> {
+    match html_parser::Dom::parse(&src) {
+        Ok(dom) => {
+            return dom
+                .children
+                .into_iter()
+                .map(|element| element.into())
+                .collect();
+        }
+        Err(e) => {
+            warn!(%e, "failed to parse html");
+            vec![Expanded::Text(src.to_string())]
+        }
+    }
+}
+
+impl<E> From<html_parser::Node> for Expanded<E> {
+    fn from(value: html_parser::Node) -> Self {
+        match value {
+            html_parser::Node::Comment(_) => Expanded::Text("".to_string()),
+            html_parser::Node::Element(html_parser::Element {
+                id,
+                name,
+                children,
+                attributes,
+                classes,
+                ..
+            }) => {
+                let mut attrs = attributes
+                    .into_iter()
+                    .map(|(name, value)| match value {
+                        Some(value) => (name.into(), value.into()),
+                        None => (name.into(), AttrValue::Bool(true)),
+                    })
+                    .collect::<HashMap<Name, AttrValue>>();
+                if let Some(id) = id {
+                    attrs.insert("id".into(), id.into());
+                }
+                if !classes.is_empty() {
+                    attrs.insert("class".into(), classes.join(" ").into());
+                }
+                let children = children.into_iter().map(Into::into).collect();
+                Self::Eager {
+                    tag: name.into(),
+                    attrs,
+                    children,
+                }
+            }
+            html_parser::Node::Text(text) => Expanded::Text(text),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +174,6 @@ pub fn text_content<E>(out: &mut String, src: &Vec<Expanded<E>>) {
     for child in src {
         match child {
             Expanded::Text(t) => out.push_str(t),
-            Expanded::Raw(_) => {}
             Expanded::Eager { children, .. } => {
                 text_content(out, children);
             }

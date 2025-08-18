@@ -15,7 +15,6 @@ pub enum Error {
 fn extract_image_src(ast: &Expanded<RawExtracted>) -> Vec<String> {
     match ast {
         Expanded::Text(_) => Vec::new(),
-        Expanded::Raw(_) => Vec::new(),
         Expanded::Lazy {
             extracted: RawExtracted::Image { url, .. },
             ..

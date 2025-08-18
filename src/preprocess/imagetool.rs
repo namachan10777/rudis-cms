@@ -4,7 +4,7 @@ use anyhow::Context;
 use image::{DynamicImage, EncodableLayout, GenericImageView as _};
 use tracing::{trace, warn};
 
-use crate::preprocess::types::AttrValue;
+use crate::preprocess::types::{AttrValue, Name};
 
 #[derive(Clone, derive_debug::Dbg)]
 pub enum Image {
@@ -19,7 +19,7 @@ pub enum Image {
         raw: String,
         width: usize,
         height: usize,
-        attrs: HashMap<String, AttrValue>,
+        attrs: HashMap<Name, AttrValue>,
         inner_content: String,
     },
     Data {
@@ -82,7 +82,7 @@ fn format_element_with_children(node: &roxmltree::Node) -> String {
 pub struct Svg {
     pub width: usize,
     pub height: usize,
-    pub attrs: HashMap<String, AttrValue>,
+    pub attrs: HashMap<Name, AttrValue>,
     pub content: String,
 }
 
@@ -123,10 +123,7 @@ fn parse_svg(data: &[u8]) -> anyhow::Result<Svg> {
     Ok(Svg {
         width,
         height,
-        attrs: attributes
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect(),
+        attrs: attributes.into_iter().map(|(k, v)| (k.into(), v)).collect(),
         content: svg_inner,
     })
 }

@@ -95,13 +95,15 @@ pub struct RichTextImageTransforms {
 impl RichTextImageTransforms {
     pub fn validate(&self) -> Result<(), String> {
         if let Some(widths) = &self.width
-            && (widths.is_empty() || widths.contains(&0)) {
-                return Err("Width must be greater than 0".into());
-            }
+            && (widths.is_empty() || widths.contains(&0))
+        {
+            return Err("Width must be greater than 0".into());
+        }
         if let Some(formats) = &self.format
-            && formats.is_empty() {
-                return Err("At least one format must be specified".into());
-            }
+            && formats.is_empty()
+        {
+            return Err("At least one format must be specified".into());
+        }
         Ok(())
     }
 }

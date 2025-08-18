@@ -7,6 +7,8 @@ use pulldown_cmark::{
 };
 use tracing::warn;
 
+use crate::preprocess::rich_text::raw_to_expanded;
+
 use super::super::{AlertKind, AttrValue, Expanded, Name, RawExtracted, RichTextDocument};
 
 pub struct MarkdownParser {}
@@ -488,8 +490,9 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
     };
     let raw = match event {
         Event::Text(text) => Expanded::Text(text.into_string()),
-        Event::Html(html) => Expanded::Raw(html.into_string()),
-        Event::InlineHtml(html) => Expanded::Raw(html.into_string()),
+        Event::Html(html) | Event::InlineHtml(html) => {
+            return MaybeMany::many(raw_to_expanded(&html));
+        }
         Event::Code(code) => Expanded::Eager {
             tag: "code".into(),
             attrs: hashmap! {},
@@ -500,7 +503,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
                 Ok(katex) => Expanded::Eager {
                     tag: "div".into(),
                     attrs: hashmap! {},
-                    children: vec![Expanded::Raw(katex)],
+                    children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
@@ -521,7 +524,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
                 Ok(katex) => Expanded::Eager {
                     tag: "span".into(),
                     attrs: hashmap! {},
-                    children: vec![Expanded::Raw(katex)],
+                    children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
@@ -557,9 +560,9 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
         Event::TaskListMarker(marker) => Expanded::Eager {
             tag: "input".into(),
             attrs: hashmap! {
-                "type".to_string() => "checkbox".into(),
-                "disabled".to_string() => true.into(),
-                "checked".to_string() => marker.into(),
+                "type".into() => "checkbox".into(),
+                "disabled".into() => true.into(),
+                "checked".into() => marker.into(),
             },
             children: vec![],
         },

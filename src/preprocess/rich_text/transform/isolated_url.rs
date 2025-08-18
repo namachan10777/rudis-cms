@@ -94,17 +94,20 @@ async fn resolve_link_impl(link: &str) -> Result<LinkCard, anyhow::Error> {
 
     let title = meta_props
         .get("og:title")
-        .or_else(|| meta_props.get("twitter:title")).copied()
+        .or_else(|| meta_props.get("twitter:title"))
+        .copied()
         .or(title.as_deref());
 
     let description = meta_props
         .get("og:description")
-        .or_else(|| meta_props.get("twitter:description")).copied()
+        .or_else(|| meta_props.get("twitter:description"))
+        .copied()
         .or(description.as_deref());
 
     let image = meta_props
         .get("og:image")
-        .or_else(|| meta_props.get("twitter:image")).copied()
+        .or_else(|| meta_props.get("twitter:image"))
+        .copied()
         .or(favicon.as_deref());
 
     let hostname = Url::parse(link)
