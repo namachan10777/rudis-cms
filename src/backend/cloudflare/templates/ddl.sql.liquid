@@ -17,6 +17,6 @@ CREATE TABLE IF NOT EXISTS {{ attr.table }}(
     {{ id_name }} TEXT NOT NULL,
     {{ attr.name }} {{ attr.type }} NOT NULL,
     PRIMARY KEY({{ id_name }}, {{ attr.name }}),
-    FOREIGN KEY({{ id_name }}) REFERENCES {{ table_name }}({{ id_name }}) DELETE ON CASCADE
+    FOREIGN KEY({{ id_name }}) REFERENCES {{ table_name }}({{ id_name }}) ON DELETE CASCADE
 );
 {% endfor -%}
