@@ -141,6 +141,12 @@ pub enum FieldDef<B: Backend> {
         #[serde(default)]
         index: bool,
     },
+    Date {
+        #[serde(default)]
+        required: bool,
+        #[serde(default)]
+        index: bool,
+    },
     Id {},
     Hash {},
     Json {
@@ -180,6 +186,7 @@ impl<B: Backend> FieldDef<B> {
     pub fn is_required(&self) -> bool {
         match self {
             Self::Boolean { required, .. } => *required,
+            Self::Date { required, .. } => *required,
             Self::Datetime { required, .. } => *required,
             Self::Id {} => true,
             Self::Hash {} => true,
@@ -196,6 +203,7 @@ impl<B: Backend> FieldDef<B> {
     pub fn needs_index(&self) -> bool {
         match self {
             Self::Boolean { index, .. } => *index,
+            Self::Date { index, .. } => *index,
             Self::Datetime { index, .. } => *index,
             Self::Integer { index, .. } => *index,
             Self::String { index, .. } => *index,

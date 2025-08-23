@@ -48,6 +48,7 @@ impl<'d, B: Backend> From<&'d FieldDef<B>> for Type {
         match value {
             FieldDef::Blob { .. } => Self::Blob,
             FieldDef::Boolean { .. } => Self::Boolean,
+            FieldDef::Date { .. } => Self::String,
             FieldDef::Datetime { .. } => Self::String,
             FieldDef::Hash { .. } => Self::Null,
             FieldDef::Integer { .. } => Self::Integer,

@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
+use chrono::FixedOffset;
 use futures::future::try_join_all;
 use serde::Deserialize;
 pub mod imagetool;
@@ -22,6 +23,8 @@ pub enum FieldValue {
     Boolean(bool),
     Integer(i64),
     Json(serde_json::Value),
+    Datetime(chrono::DateTime<FixedOffset>),
+    Date(chrono::NaiveDate),
     Blob {
         #[dbg(skip)]
         data: Arc<Box<[u8]>>,
@@ -137,6 +140,11 @@ pub enum Error {
     },
     #[error("Load remote resource error: {url}, {error}")]
     LoadRemoteResource { url: String, error: surf::Error },
+    #[error("Failed to parse date: {date}: {error}")]
+    DateFormat {
+        date: String,
+        error: chrono::ParseError,
+    },
     #[error("Failed to parse datetime: {datetime}: {error}")]
     DatetimeFormat {
         datetime: String,
@@ -248,10 +256,15 @@ async fn preprocess_field<B: Backend>(
             )))
         }
         (FieldDef::Boolean { .. }, serde_json::Value::Bool(b)) => Ok(Some(FieldValue::Boolean(b))),
+        (FieldDef::Date { .. }, serde_json::Value::String(s)) => {
+            let date = chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .map_err(|error| Error::DateFormat { date: s, error })?;
+            Ok(Some(FieldValue::Date(date)))
+        }
         (FieldDef::Datetime { .. }, serde_json::Value::String(s)) => {
             let datetime = chrono::DateTime::parse_from_rfc3339(&s)
                 .map_err(|error| Error::DatetimeFormat { datetime: s, error })?;
-            Ok(Some(FieldValue::String(datetime.to_rfc3339())))
+            Ok(Some(FieldValue::Datetime(datetime)))
         }
         (FieldDef::Hash {}, _) => Err(Error::FieldConflict(ctx.name.to_owned())),
         (FieldDef::Id {}, serde_json::Value::String(id)) => Ok(Some(FieldValue::Id(id))),
