@@ -2,9 +2,8 @@ blog:
   glob: "**/*.md"
   backend:
     type: cloudflare
-    database-id: "0000000000000000000001"
+    database_id: "0000000000000000000001"
     table: "blogs"
-    image-table: "blog_images"
   schema:
     id:
       type: id
@@ -12,7 +11,8 @@ blog:
       type: markdown
       embed_svg: true
       document_body: true
-      config: {}
+      config:
+        image_table: "blog_images"
     title:
       type: string
       required: true
@@ -21,14 +21,18 @@ blog:
     published_at:
       type: datetime
       required: true
+      index: true
     tags:
       type: set
       item: string
+      column_name: "tag"
       backend:
         type: d1
         table: blog_tags
     meta:
       type: json
+    hash:
+      type: hash
     og_image:
       type: image
       required: true

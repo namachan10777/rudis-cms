@@ -1,31 +1,22 @@
 CREATE TABLE IF NOT EXISTS {{ table_name }}(
     {{ id_name }} TEXT NOT NULL PRIMARY KEY,
-    {% for attr in scalar_attrs %}
-    {{ attr.name }} {{ attr.type }} {% if attr.required %}NOT NULL{% endif %},
-    {% endfor %}
+    {% for attr in scalar_attrs -%}
+    {{ attr.name }} {{ attr.type }}{% if attr.required %} NOT NULL{% endif -%},
+    {% endfor -%}
     {{ hash_name }} TEXT NOT NULL
 );
 
-{% for attr in scalar_attrs %}
-{% if attr.index %}
+{% for attr in scalar_attrs -%}
+{%- if attr.index -%}
 CREATE INDEX IF NOT EXISTS index_{{ table_name }}_{{ attr.name }} ON {{ table_name }}({{ attr.name }});
-{% endif %}
-{% endfor %}
+{% endif -%}
+{%- endfor %}
 
-CREATE TABLE IF NOT EXISTS {{ image_table_name }}(
-    parent_id TEXT NOT NULL,
-    parent_name TEXT NOT NULL,
-    src_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    PRIMARY KEY(parent_id, parent_name, src_id),
-    FOREIGN KEY(parent_id) REFERENCES {{ table_name }}({{ id_name }})
-);
-
-{% for attr in set_attrs %}
+{%- for attr in set_attrs %}
 CREATE TABLE IF NOT EXISTS {{ attr.table }}(
-    id TEXT NOT NULL,
-    item {{ attr.type }} NOT NULL,
-    PRIMARY KEY(id, item),
-    FOREIGN KEY(id) REFERENCES {{ table_name }}({{ id_name }})
+    {{ id_name }} TEXT NOT NULL,
+    {{ attr.name }} {{ attr.type }} NOT NULL,
+    PRIMARY KEY({{ id_name }}, {{ attr.name }}),
+    FOREIGN KEY({{ id_name }}) REFERENCES {{ table_name }}({{ id_name }}) DELETE ON CASCADE
 );
-{% endfor %}
+{% endfor -%}

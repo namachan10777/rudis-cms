@@ -6,7 +6,7 @@ use valuable::Valuable;
 use crate::backend::{self, Backend};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum RasterImageFormat {
     Png,
     Webp,
@@ -38,7 +38,7 @@ impl std::fmt::Display for RasterImageFormat {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub struct ImageTransform {
     width: Option<u32>,
     format: Option<RasterImageFormat>,
@@ -54,7 +54,7 @@ impl ImageTransform {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub struct RichTextImageBackend {
     zone: String,
     bucket: String,
@@ -79,7 +79,7 @@ impl RichTextImageBackend {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum SetItemType {
     String,
     Integer,
@@ -115,7 +115,7 @@ pub struct MarkdownImageConfig<I> {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum FieldDef<B: Backend> {
     String {
         #[serde(default)]
@@ -171,6 +171,7 @@ pub enum FieldDef<B: Backend> {
         #[serde(default)]
         at_least_once: bool,
         item: SetItemType,
+        column_name: Option<String>,
         backend: B::SetBackendConfig,
     },
 }

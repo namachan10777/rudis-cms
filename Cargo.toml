@@ -45,5 +45,5 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 url = "2"
 scraper = "0.23"
-derive-debug = "0.1.2"
-html_parser = "0.7.0"
+derive-debug = "0.1"
+html_parser = "0.7"

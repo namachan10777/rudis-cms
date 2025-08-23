@@ -1,13 +1,22 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 use serde::{Deserialize, Serialize};
 use valuable::Valuable;
 
-use crate::{backend::Backend, config::FieldDef};
+use crate::{
+    config::{FieldDef, SetItemType},
+    preprocess::Schema,
+};
 
 pub mod d1;
 
-pub struct CloudflareBackend {}
+pub struct CloudflareBackend {
+    schema: Arc<Schema<Self>>,
+    config: BackendConfig,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -18,7 +27,7 @@ pub enum Error {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ImageBackendConfig {
     R2 {
         zone: String,
@@ -28,7 +37,7 @@ pub enum ImageBackendConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum BlobBackendConfig {
     R2 {
         zone: String,
@@ -38,22 +47,32 @@ pub enum BlobBackendConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub struct BackendConfig {
     database_id: String,
     table: String,
-    image_table: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
-pub enum SetBackendConfig {
-    D1 { table: String },
+#[serde(rename_all = "snake_case", tag = "type")]
+pub struct SetBackendConfig {
+    table: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "kebab-case", tag = "type")]
-pub struct RichTextBackendConfig {}
+#[serde(rename_all = "snake_case", tag = "type")]
+pub struct RichTextBackendConfig {
+    pub image_table: String,
+}
+
+#[allow(unused)]
+static SQL_TEMPLATE_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
+    liquid::ParserBuilder::with_stdlib()
+        .build()
+        .unwrap()
+        .parse(include_str!("./templates/ddl.sql.liquid"))
+        .unwrap()
+});
 
 impl super::Backend for CloudflareBackend {
     type Error = Error;
@@ -65,14 +84,12 @@ impl super::Backend for CloudflareBackend {
     type RichTextConfig = RichTextBackendConfig;
 
     fn print_schema(&self) -> String {
-        unimplemented!()
+        let liquid_ctx = create_sql_liquid_context(&self.config, &self.schema.schema).unwrap();
+        SQL_TEMPLATE_DDL.render(&liquid_ctx).unwrap()
     }
 
-    async fn init(
-        _: BackendConfig,
-        _: HashMap<String, FieldDef<Self>>,
-    ) -> Result<Self, Self::Error> {
-        unimplemented!()
+    async fn init(config: BackendConfig, schema: Arc<Schema<Self>>) -> Result<Self, Self::Error> {
+        Ok(Self { schema, config })
     }
 
     async fn changed(
@@ -89,13 +106,6 @@ impl super::Backend for CloudflareBackend {
         unimplemented!()
     }
 }
-
-#[allow(unused)]
-static SQL_TEMPLATE_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
-    liquid::Parser::new()
-        .parse(include_str!("./templates/ddl.sql.liquid"))
-        .unwrap()
-});
 
 #[derive(Serialize, Deserialize, Valuable, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImageVariant {
@@ -119,9 +129,9 @@ pub struct Blob {
 }
 
 #[allow(unused)]
-fn create_sql_liquid_context<B: Backend>(
+fn create_sql_liquid_context(
     backend_config: &BackendConfig,
-    schema: HashMap<String, FieldDef<B>>,
+    schema: &HashMap<String, FieldDef<CloudflareBackend>>,
 ) -> Result<liquid::Object, Error> {
     let (id_name, _) = schema
         .iter()
@@ -153,11 +163,49 @@ fn create_sql_liquid_context<B: Backend>(
             }))
         })
         .collect::<Vec<_>>();
+    let mut set_attrs = schema
+        .iter()
+        .filter_map(|(name, attr)| match attr {
+            FieldDef::Set {
+                item,
+                backend,
+                column_name,
+                ..
+            } => {
+                let sqlite_type = match item {
+                    SetItemType::Boolean => "INTEGER",
+                    SetItemType::Integer => "INTEGER",
+                    SetItemType::String => "TEXT",
+                };
+                let name = column_name.as_ref().unwrap_or(name);
+                Some(liquid::object!({
+                    "name": name,
+                    "type": sqlite_type,
+                    "table": backend.table,
+                }))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let rich_text_images = schema.iter().filter_map(|(_, value)| match value {
+        FieldDef::Markdown {
+            embed_svg,
+            document_body,
+            required,
+            config,
+        } => Some(liquid::object!({
+            "name": "image",
+            "type": "TEXT",
+            "table": config.image_table,
+        })),
+        _ => None,
+    });
+    set_attrs.extend(rich_text_images);
     Ok(liquid::object!({
         "table_name": backend_config.table,
-        "image_table_name": backend_config.image_table,
         "id_name": id_name,
         "scalar_attrs": scalar_attrs,
+        "set_attrs": set_attrs,
         "hash_name": hash_name
     }))
 }

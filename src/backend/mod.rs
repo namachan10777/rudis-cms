@@ -1,11 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::de::DeserializeOwned;
+
+use crate::preprocess::Schema;
 
 pub mod cloudflare;
 
 pub trait Backend: Sized {
-    type Error;
+    type Error: Send + Sync + 'static + std::error::Error;
 
     type ImageBackendConfig: DeserializeOwned;
     type BlobBackendConfig: DeserializeOwned;
@@ -17,7 +19,7 @@ pub trait Backend: Sized {
 
     fn init(
         config: Self::BackendConfig,
-        schema: HashMap<String, crate::config::FieldDef<Self>>,
+        schema: Arc<Schema<Self>>,
     ) -> impl Future<Output = Result<Self, Self::Error>>;
 
     fn changed(
