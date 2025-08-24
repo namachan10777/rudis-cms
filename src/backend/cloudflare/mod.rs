@@ -3,19 +3,25 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
+use aws_config::BehaviorVersion;
 use serde::{Deserialize, Serialize};
 use valuable::Valuable;
 
 use crate::{
     config::{FieldDef, SetItemType},
-    preprocess::Schema,
+    preprocess::{Document, Schema},
 };
 
 pub mod d1;
 
+enum ThreadPoolRequest {}
+
 pub struct CloudflareBackend {
     schema: Arc<Schema<Self>>,
     config: BackendConfig,
+    r2: aws_sdk_s3::Client,
+    d1: d1::D1Client,
+    thread_pool_tx: async_channel::Sender<ThreadPoolRequest>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +30,8 @@ pub enum Error {
     IdNotDefined,
     #[error("hash not defined")]
     HashNotDefined,
+    #[error("env var {0} not found")]
+    EnvVarNotFound(&'static str),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
@@ -74,6 +82,18 @@ static SQL_TEMPLATE_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
         .unwrap()
 });
 
+struct TransactionSideEffects {}
+
+impl CloudflareBackend {
+    async fn to_json(&self, document: Document) -> serde_json::Value {
+        unimplemented!()
+    }
+}
+
+fn blocking_task(rx: async_channel::Receiver<ThreadPoolRequest>) {
+    unimplemented!()
+}
+
 impl super::Backend for CloudflareBackend {
     type Error = Error;
 
@@ -89,20 +109,49 @@ impl super::Backend for CloudflareBackend {
     }
 
     async fn init(config: BackendConfig, schema: Arc<Schema<Self>>) -> Result<Self, Self::Error> {
-        Ok(Self { schema, config })
+        let account_id =
+            std::env::var("CF_ACCOUNT_ID").map_err(|_| Error::EnvVarNotFound("CF_ACCOUNT_ID"))?;
+        let access_key_id = std::env::var("R2_ACCESS_KEY_ID")
+            .map_err(|_| Error::EnvVarNotFound("R2_ACCESS_KEY_ID"))?;
+        let access_key_secret = std::env::var("R2_ACCESS_KEY_SECRET")
+            .map_err(|_| Error::EnvVarNotFound("R2_ACCESS_KEY_SECRET"))?;
+        let api_token =
+            std::env::var("CF_API_TOKEN").map_err(|_| Error::EnvVarNotFound("CF_API_TOKEN"))?;
+
+        let aws_config = aws_config::defaults(BehaviorVersion::latest())
+            .endpoint_url(format!("https://{}.r2.cloudflarestorage.com", account_id))
+            .credentials_provider(aws_sdk_s3::config::Credentials::new(
+                access_key_id,
+                access_key_secret,
+                None,
+                None,
+                "R2",
+            ))
+            .region("auto")
+            .load()
+            .await;
+
+        let r2 = aws_sdk_s3::Client::new(&aws_config);
+        let d1 = d1::D1Client::new(&account_id, &config.database_id, &api_token);
+        let (thread_pool_tx, thread_pool_rx) = async_channel::unbounded();
+
+        for _ in 0..(num_cpus::get() - 2).max(1) {
+            let thread_pool_rx = thread_pool_rx.clone();
+            std::thread::spawn(move || {
+                blocking_task(thread_pool_rx);
+            });
+        }
+
+        Ok(Self {
+            schema,
+            config,
+            r2,
+            d1,
+            thread_pool_tx,
+        })
     }
 
-    async fn changed(
-        &self,
-        _: std::collections::HashMap<String, blake3::Hash>,
-    ) -> Result<String, Self::Error> {
-        unimplemented!()
-    }
-
-    async fn changed_image(
-        &self,
-        _: std::collections::HashMap<String, blake3::Hash>,
-    ) -> Result<String, Self::Error> {
+    async fn batch(&self, documents: Vec<crate::preprocess::Document>) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }

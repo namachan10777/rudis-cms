@@ -1,9 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
-use futures::future::join_all;
+use futures::future::try_join_all;
 use nothing_cms::{
     backend::{Backend, cloudflare::CloudflareBackend},
     config::BackendVariants,
+    preprocess::Schema,
 };
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::error;
@@ -11,6 +12,7 @@ use tracing::error;
 #[derive(Parser)]
 enum SubCommand {
     ShowSchema,
+    Batch,
 }
 
 #[derive(Parser)]
@@ -24,25 +26,15 @@ struct Opts {
 async fn init_backend<B: Backend>(
     backend: B::BackendConfig,
     schema: serde_json::Value,
-    glob: &str,
-) -> anyhow::Result<B> {
+) -> anyhow::Result<(B, Arc<Schema<B>>)> {
     let schema: HashMap<String, nothing_cms::config::FieldDef<B>> = serde_json::from_value(schema)?;
     let schema = nothing_cms::preprocess::Schema {
         document_type: nothing_cms::preprocess::DocumentType::Markdown,
         schema,
     };
     let schema = Arc::new(schema);
-    let tasks = glob::glob(glob)?.map(|path| {
-        let schema = schema.clone();
-        async move {
-            let path = path?;
-            let src = smol::fs::read_to_string(&path).await?;
-            let doc = schema.preprocess_document(&path, &src).await?;
-            Ok::<_, anyhow::Error>(doc)
-        }
-    });
-    let documents = join_all(tasks).await;
-    B::init(backend, schema).await.map_err(Into::into)
+    let backend = B::init(backend, schema.clone()).await?;
+    Ok((backend, schema))
 }
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
@@ -56,12 +48,24 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
     for (_, collection) in config {
         match collection.backend {
             BackendVariants::Cloudflare(backend) => {
-                let backend =
-                    init_backend::<CloudflareBackend>(backend, collection.schema, &collection.glob)
-                        .await?;
+                let (backend, schema) =
+                    init_backend::<CloudflareBackend>(backend, collection.schema).await?;
                 match opts.subcmd {
                     SubCommand::ShowSchema => {
                         print!("{}", backend.print_schema());
+                    }
+                    SubCommand::Batch => {
+                        let tasks = glob::glob(&collection.glob)?.map(|path| {
+                            let schema = schema.clone();
+                            async move {
+                                let path = path?;
+                                let src = smol::fs::read_to_string(&path).await?;
+                                let doc = schema.preprocess_document(&path, &src).await?;
+                                Ok::<_, anyhow::Error>(doc)
+                            }
+                        });
+                        let documents = try_join_all(tasks).await?;
+                        backend.batch(documents).await?;
                     }
                 }
             }

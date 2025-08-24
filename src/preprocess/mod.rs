@@ -6,6 +6,8 @@ use std::{
 
 use chrono::FixedOffset;
 use futures::future::try_join_all;
+use image::EncodableLayout;
+use itertools::{Either, Itertools};
 use serde::Deserialize;
 pub mod imagetool;
 pub mod rich_text;
@@ -14,6 +16,7 @@ pub mod types;
 use crate::{
     backend::Backend,
     config::{FieldDef, SetItemType},
+    preprocess::rich_text::{Expanded, Extracted},
     schema::Type,
 };
 
@@ -41,7 +44,6 @@ pub enum FieldValue {
         ast: rich_text::Transformed,
         tags: HashMap<String, serde_json::Value>,
     },
-    Set(SetField),
 }
 
 #[derive(Debug)]
@@ -111,6 +113,11 @@ pub enum DocumentType {
     Markdown,
 }
 
+pub struct Document {
+    pub fields: HashMap<String, FieldValue>,
+    pub set_fields: HashMap<String, SetField>,
+}
+
 pub struct Schema<B: Backend> {
     pub document_type: DocumentType,
     pub schema: HashMap<String, FieldDef<B>>,
@@ -173,10 +180,9 @@ struct PreprocessContext<'a, B: Backend> {
     article_path: &'a Path,
     name: &'a str,
     def: &'a FieldDef<B>,
-    hash: blake3::Hash,
 }
 
-async fn compile_set_field<B: Backend>(
+async fn preprocess_set_field<B: Backend>(
     _: PreprocessContext<'_, B>,
     def: SetItemType,
     value: Vec<serde_json::Value>,
@@ -221,12 +227,12 @@ async fn compile_set_field<B: Backend>(
 async fn preprocess_field<B: Backend>(
     ctx: PreprocessContext<'_, B>,
     value: Option<serde_json::Value>,
-) -> Result<Option<FieldValue>, Error> {
+) -> Result<Option<Either<FieldValue, SetField>>, Error> {
     let field = match value {
         Some(field) => field,
         None => {
             if matches!(ctx.def, FieldDef::Hash {}) {
-                return Ok(Some(FieldValue::Hash(ctx.hash)));
+                return Ok(None);
             } else if ctx.def.is_required() {
                 return Err(Error::MissingRequiredField(ctx.name.to_owned()));
             } else {
@@ -236,10 +242,12 @@ async fn preprocess_field<B: Backend>(
     };
     match (ctx.def, field) {
         (FieldDef::Integer { .. }, serde_json::Value::Number(n)) if n.is_i64() => {
-            Ok(Some(FieldValue::Integer(n.as_i64().unwrap())))
+            Ok(Some(Either::Left(FieldValue::Integer(n.as_i64().unwrap()))))
         }
-        (FieldDef::Json { .. }, any) => Ok(Some(FieldValue::Json(any))),
-        (FieldDef::String { .. }, serde_json::Value::String(s)) => Ok(Some(FieldValue::String(s))),
+        (FieldDef::Json { .. }, any) => Ok(Some(Either::Left(FieldValue::Json(any)))),
+        (FieldDef::String { .. }, serde_json::Value::String(s)) => {
+            Ok(Some(Either::Left(FieldValue::String(s))))
+        }
         (
             FieldDef::Set {
                 at_least_once,
@@ -251,25 +259,29 @@ async fn preprocess_field<B: Backend>(
             if *at_least_once && values.is_empty() {
                 return Err(Error::MissingRequiredField(ctx.name.to_owned()));
             }
-            Ok(Some(FieldValue::Set(
-                compile_set_field(ctx, *item, values).await?,
+            Ok(Some(Either::Right(
+                preprocess_set_field(ctx, *item, values).await?,
             )))
         }
-        (FieldDef::Boolean { .. }, serde_json::Value::Bool(b)) => Ok(Some(FieldValue::Boolean(b))),
+        (FieldDef::Boolean { .. }, serde_json::Value::Bool(b)) => {
+            Ok(Some(Either::Left(FieldValue::Boolean(b))))
+        }
         (FieldDef::Date { .. }, serde_json::Value::String(s)) => {
             let date = chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .map_err(|error| Error::DateFormat { date: s, error })?;
-            Ok(Some(FieldValue::Date(date)))
+            Ok(Some(Either::Left(FieldValue::Date(date))))
         }
         (FieldDef::Datetime { .. }, serde_json::Value::String(s)) => {
             let datetime = chrono::DateTime::parse_from_rfc3339(&s)
                 .map_err(|error| Error::DatetimeFormat { datetime: s, error })?;
-            Ok(Some(FieldValue::Datetime(datetime)))
+            Ok(Some(Either::Left(FieldValue::Datetime(datetime))))
         }
         (FieldDef::Hash {}, _) => Err(Error::FieldConflict(ctx.name.to_owned())),
-        (FieldDef::Id {}, serde_json::Value::String(id)) => Ok(Some(FieldValue::Id(id))),
+        (FieldDef::Id {}, serde_json::Value::String(id)) => {
+            Ok(Some(Either::Left(FieldValue::Id(id))))
+        }
         (FieldDef::Id {}, serde_json::Value::Number(id)) => {
-            Ok(Some(FieldValue::Id(id.to_string())))
+            Ok(Some(Either::Left(FieldValue::Id(id.to_string()))))
         }
         (FieldDef::Blob { .. }, value) => {
             let got = (&value).into();
@@ -286,11 +298,11 @@ async fn preprocess_field<B: Backend>(
                     path: PathBuf::from(path),
                     error,
                 })?;
-            Ok(Some(FieldValue::Blob {
+            Ok(Some(Either::Left(FieldValue::Blob {
                 hash: blake3::hash(&data),
                 data: Arc::new(data.into_boxed_slice()),
                 tags,
-            }))
+            })))
         }
         (FieldDef::Image { .. }, value) => {
             let got = (&value).into();
@@ -301,10 +313,10 @@ async fn preprocess_field<B: Backend>(
                 }
             })?;
             let (path, tags) = def.into();
-            Ok(Some(FieldValue::Image {
+            Ok(Some(Either::Left(FieldValue::Image {
                 image: imagetool::load_image(ctx.article_path, &path).await,
                 tags,
-            }))
+            })))
         }
         (FieldDef::Markdown { embed_svg, .. }, value) => {
             let got = (&value).into();
@@ -316,7 +328,7 @@ async fn preprocess_field<B: Backend>(
             let (src, tags) = def.into();
             let ast = rich_text::parser::markdown::parse(&src);
             let ast = rich_text::transform::transform(ctx.article_path, *embed_svg, ast).await?;
-            Ok(Some(FieldValue::RichText { ast, tags }))
+            Ok(Some(Either::Left(FieldValue::RichText { ast, tags })))
         }
         (def, value) => Err(Error::Type {
             expected: def.into(),
@@ -325,13 +337,46 @@ async fn preprocess_field<B: Backend>(
     }
 }
 
+fn hash_recursive(hasher: &mut blake3::Hasher, ast: &Expanded<Extracted>) {
+    match ast {
+        Expanded::Eager { children, .. } => {
+            children
+                .iter()
+                .for_each(|child| hash_recursive(hasher, child));
+        }
+        Expanded::Text(_) => {}
+        Expanded::Lazy {
+            extracted: Extracted::RasterImage { data, .. },
+            children,
+        } => {
+            hasher.update(data.as_bytes());
+            children
+                .iter()
+                .for_each(|child| hash_recursive(hasher, child));
+        }
+        Expanded::Lazy {
+            extracted: Extracted::VectorImage { raw, .. },
+            children,
+        } => {
+            hasher.update(raw.as_bytes());
+            children
+                .iter()
+                .for_each(|child| hash_recursive(hasher, child));
+        }
+        Expanded::Lazy { children, .. } => {
+            children
+                .iter()
+                .for_each(|child| hash_recursive(hasher, child));
+        }
+    }
+}
+
 impl<B: Backend> Schema<B> {
     async fn preprocess_fields(
         &self,
         path: &Path,
-        hash: blake3::Hash,
         mut src: HashMap<String, serde_json::Value>,
-    ) -> Result<HashMap<String, FieldValue>, Error> {
+    ) -> Result<Document, Error> {
         let fields = try_join_all(self.schema.iter().map(|(name, def)| {
             let field = src.remove(name);
             async move {
@@ -339,33 +384,33 @@ impl<B: Backend> Schema<B> {
                     article_path: path,
                     name,
                     def,
-                    hash,
                 };
                 let field = preprocess_field(ctx, field).await?;
                 Ok::<_, Error>((name.clone(), field))
             }
         }))
         .await?;
-        Ok(fields
+        let (fields, set_fields) = fields
             .into_iter()
             .flat_map(|(name, field)| field.map(|f| (name, f)))
-            .collect())
+            .partition_map(|(name, field)| match field {
+                Either::Left(field) => Either::Left((name, field)),
+                Either::Right(field) => Either::Right((name, field)),
+            });
+        Ok(Document { fields, set_fields })
     }
 
-    pub async fn preprocess_document(
-        &self,
-        path: &Path,
-        src: &str,
-    ) -> Result<HashMap<String, FieldValue>, Error> {
-        let hash = blake3::hash(src.as_bytes());
-        match self.document_type {
+    pub async fn preprocess_document(&self, path: &Path, src: &str) -> Result<Document, Error> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(src.as_bytes());
+        let mut document = match self.document_type {
             DocumentType::Toml => {
                 let fields = toml::from_str(src).map_err(Error::ParseToml)?;
-                self.preprocess_fields(path, hash, fields).await
+                self.preprocess_fields(path, fields).await
             }
             DocumentType::Yaml => {
                 let fields = toml::from_str(src).map_err(Error::ParseToml)?;
-                self.preprocess_fields(path, hash, fields).await
+                self.preprocess_fields(path, fields).await
             }
             DocumentType::Markdown => {
                 let (mut fields, markdown) = if let Some((frontmatter, body)) =
@@ -386,9 +431,39 @@ impl<B: Backend> Schema<B> {
                     "body".into(),
                     serde_json::Value::String(markdown.to_owned()),
                 );
-                self.preprocess_fields(path, hash, fields).await
+                self.preprocess_fields(path, fields).await
             }
-        }
+        }?;
+
+        document.fields.iter().for_each(|(_, field)| match field {
+            FieldValue::Blob { data, .. } => {
+                hasher.update(&data.as_bytes());
+            }
+            FieldValue::Image { image, .. } => {
+                image.hash(&mut hasher);
+            }
+            FieldValue::RichText { ast, .. } => {
+                for node in &ast.children {
+                    hash_recursive(&mut hasher, node);
+                }
+                for (_, node) in &ast.footnotes {
+                    hash_recursive(&mut hasher, node);
+                }
+            }
+            _ => {}
+        });
+
+        let (hash_name, _) = self
+            .schema
+            .iter()
+            .find(|(_, def)| matches!(def, FieldDef::Hash {}))
+            .ok_or_else(|| Error::MissingRequiredField("Hash".into()))?;
+
+        document
+            .fields
+            .insert(hash_name.clone(), FieldValue::Hash(hasher.finalize()));
+
+        Ok(document)
     }
 }
 

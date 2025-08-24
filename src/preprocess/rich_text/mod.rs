@@ -74,6 +74,7 @@ pub enum Extracted {
     VectorImage {
         width: u32,
         height: u32,
+        raw: String,
         attrs: HashMap<Name, AttrValue>,
     },
     Codeblock {

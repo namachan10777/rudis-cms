@@ -39,6 +39,25 @@ impl Image {
             _ => None,
         }
     }
+
+    pub fn hash(&self, hasher: &mut blake3::Hasher) {
+        match self {
+            Self::Data { url } => {
+                hasher.update(url.as_bytes());
+            }
+            Self::Raster { remote, data } => {
+                hasher.update(&if *remote { [1] } else { [0] });
+                hasher.update(data.as_bytes());
+            }
+            Self::Svg { remote, raw, .. } => {
+                hasher.update(&if *remote { [1] } else { [0] });
+                hasher.update(raw.as_bytes());
+            }
+            Self::Unknown => {
+                hasher.update("unknown".as_bytes());
+            }
+        }
+    }
 }
 
 fn format_element_with_children(node: &roxmltree::Node) -> String {

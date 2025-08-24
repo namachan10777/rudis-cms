@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use serde::de::DeserializeOwned;
 
-use crate::preprocess::Schema;
+use crate::preprocess::{Document, Schema};
 
 pub mod cloudflare;
 
@@ -22,13 +22,5 @@ pub trait Backend: Sized {
         schema: Arc<Schema<Self>>,
     ) -> impl Future<Output = Result<Self, Self::Error>>;
 
-    fn changed(
-        &self,
-        local_hash_set: HashMap<String, blake3::Hash>,
-    ) -> impl Future<Output = Result<String, Self::Error>>;
-
-    fn changed_image(
-        &self,
-        local_hash_set: HashMap<String, blake3::Hash>,
-    ) -> impl Future<Output = Result<String, Self::Error>>;
+    fn batch(&self, documents: Vec<Document>) -> impl Future<Output = Result<(), Self::Error>>;
 }

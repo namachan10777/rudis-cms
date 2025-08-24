@@ -3277,6 +3277,7 @@ name = "nothing-cms"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel 2.5.0",
  "aws-config",
  "aws-sdk-s3",
  "blake3",
@@ -3288,9 +3289,11 @@ dependencies = [
  "glob",
  "html_parser",
  "image",
+ "itertools 0.14.0",
  "katex",
  "liquid",
  "maplit",
+ "num_cpus",
  "pulldown-cmark",
  "regex",
  "roxmltree",

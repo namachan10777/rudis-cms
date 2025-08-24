@@ -258,6 +258,7 @@ fn transform_impl(
                         height,
                         mut attrs,
                         inner_content,
+                        raw,
                         ..
                     }) => {
                         if ctx.embed_svg {
@@ -270,6 +271,7 @@ fn transform_impl(
                         } else {
                             Expanded::Lazy {
                                 extracted: rich_text::Extracted::VectorImage {
+                                    raw,
                                     width: width as _,
                                     height: height as _,
                                     attrs: attrs
