@@ -7,6 +7,7 @@ use std::{
 use chrono::FixedOffset;
 use futures::future::try_join_all;
 use image::EncodableLayout;
+use indexmap::IndexMap;
 use itertools::{Either, Itertools};
 use serde::Deserialize;
 pub mod imagetool;
@@ -114,13 +115,14 @@ pub enum DocumentType {
 }
 
 pub struct Document {
-    pub fields: HashMap<String, FieldValue>,
-    pub set_fields: HashMap<String, SetField>,
+    pub fields: IndexMap<String, FieldValue>,
+    pub set_fields: IndexMap<String, SetField>,
+    pub id: String,
 }
 
 pub struct Schema<B: Backend> {
     pub document_type: DocumentType,
-    pub schema: HashMap<String, FieldDef<B>>,
+    pub schema: IndexMap<String, FieldDef<B>>,
 }
 
 static MARKDOWN_TOML_FRONTMATTER_SEPARATOR: LazyLock<regex::Regex> =
@@ -376,7 +378,7 @@ impl<B: Backend> Schema<B> {
         &self,
         path: &Path,
         mut src: HashMap<String, serde_json::Value>,
-    ) -> Result<Document, Error> {
+    ) -> Result<(IndexMap<String, FieldValue>, IndexMap<String, SetField>), Error> {
         let fields = try_join_all(self.schema.iter().map(|(name, def)| {
             let field = src.remove(name);
             async move {
@@ -397,13 +399,13 @@ impl<B: Backend> Schema<B> {
                 Either::Left(field) => Either::Left((name, field)),
                 Either::Right(field) => Either::Right((name, field)),
             });
-        Ok(Document { fields, set_fields })
+        Ok((fields, set_fields))
     }
 
     pub async fn preprocess_document(&self, path: &Path, src: &str) -> Result<Document, Error> {
         let mut hasher = blake3::Hasher::new();
         hasher.update(src.as_bytes());
-        let mut document = match self.document_type {
+        let (mut fields, set_fields) = match self.document_type {
             DocumentType::Toml => {
                 let fields = toml::from_str(src).map_err(Error::ParseToml)?;
                 self.preprocess_fields(path, fields).await
@@ -435,7 +437,7 @@ impl<B: Backend> Schema<B> {
             }
         }?;
 
-        document.fields.iter().for_each(|(_, field)| match field {
+        fields.iter().for_each(|(_, field)| match field {
             FieldValue::Blob { data, .. } => {
                 hasher.update(&data.as_bytes());
             }
@@ -459,11 +461,19 @@ impl<B: Backend> Schema<B> {
             .find(|(_, def)| matches!(def, FieldDef::Hash {}))
             .ok_or_else(|| Error::MissingRequiredField("Hash".into()))?;
 
-        document
-            .fields
-            .insert(hash_name.clone(), FieldValue::Hash(hasher.finalize()));
+        fields.insert(hash_name.clone(), FieldValue::Hash(hasher.finalize()));
 
-        Ok(document)
+        Ok(Document {
+            fields,
+            set_fields,
+            id: self
+                .schema
+                .iter()
+                .find(|(_, def)| matches!(def, FieldDef::Id {}))
+                .ok_or_else(|| Error::MissingRequiredField("Id".into()))?
+                .0
+                .clone(),
+        })
     }
 }
 

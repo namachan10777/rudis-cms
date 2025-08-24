@@ -1,5 +1,6 @@
 use std::{collections::HashMap, hash::Hash, sync::Arc};
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use valuable::Valuable;
@@ -162,7 +163,7 @@ impl<E> From<html_parser::Node> for Expanded<E> {
 #[derive(Debug, Clone)]
 pub struct RichTextDocument<E> {
     pub children: Vec<Expanded<E>>,
-    pub footnote_definitions: HashMap<String, Expanded<E>>,
+    pub footnote_definitions: IndexMap<String, Expanded<E>>,
 }
 
 #[derive(Debug)]

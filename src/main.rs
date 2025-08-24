@@ -1,12 +1,13 @@
 use anyhow::Context;
 use clap::Parser;
 use futures::future::try_join_all;
+use indexmap::IndexMap;
 use nothing_cms::{
     backend::{Backend, cloudflare::CloudflareBackend},
     config::BackendVariants,
     preprocess::Schema,
 };
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tracing::error;
 
 #[derive(Parser)]
@@ -27,7 +28,8 @@ async fn init_backend<B: Backend>(
     backend: B::BackendConfig,
     schema: serde_json::Value,
 ) -> anyhow::Result<(B, Arc<Schema<B>>)> {
-    let schema: HashMap<String, nothing_cms::config::FieldDef<B>> = serde_json::from_value(schema)?;
+    let schema: IndexMap<String, nothing_cms::config::FieldDef<B>> =
+        serde_json::from_value(schema)?;
     let schema = nothing_cms::preprocess::Schema {
         document_type: nothing_cms::preprocess::DocumentType::Markdown,
         schema,

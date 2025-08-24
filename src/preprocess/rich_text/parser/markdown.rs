@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::LazyLock};
 
+use indexmap::IndexMap;
 use maplit::hashmap;
 use pulldown_cmark::{
     Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, MetadataBlockKind,
@@ -29,7 +30,7 @@ struct ParserImpl<'src> {
     parser: pulldown_cmark::Parser<'src>,
     lookahead: Vec<Event<'src>>,
     frontmatter: Option<Result<serde_json::Value, String>>,
-    footnote_definitions: HashMap<String, Expanded<RawExtracted>>,
+    footnote_definitions: IndexMap<String, Expanded<RawExtracted>>,
 }
 
 impl<'src> ParserImpl<'src> {

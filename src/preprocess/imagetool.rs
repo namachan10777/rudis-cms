@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, fmt::Display, path::Path};
 
 use anyhow::Context;
 use image::{DynamicImage, EncodableLayout, GenericImageView as _};
@@ -9,12 +9,12 @@ use crate::preprocess::types::{AttrValue, Name};
 #[derive(Clone, derive_debug::Dbg)]
 pub enum Image {
     Raster {
-        remote: bool,
+        remote_url: Option<(url::Url, String)>,
         #[dbg(skip)]
         data: DynamicImage,
     },
     Svg {
-        remote: bool,
+        remote_url: Option<url::Url>,
         #[dbg(skip)]
         raw: String,
         width: usize,
@@ -23,7 +23,7 @@ pub enum Image {
         inner_content: String,
     },
     Data {
-        url: String,
+        url: url::Url,
     },
     Unknown,
 }
@@ -43,14 +43,16 @@ impl Image {
     pub fn hash(&self, hasher: &mut blake3::Hasher) {
         match self {
             Self::Data { url } => {
-                hasher.update(url.as_bytes());
+                hasher.update(url.as_str().as_bytes());
             }
-            Self::Raster { remote, data } => {
-                hasher.update(&if *remote { [1] } else { [0] });
+            Self::Raster { remote_url, data } => {
+                hasher.update(&if remote_url.is_some() { [1] } else { [0] });
                 hasher.update(data.as_bytes());
             }
-            Self::Svg { remote, raw, .. } => {
-                hasher.update(&if *remote { [1] } else { [0] });
+            Self::Svg {
+                remote_url, raw, ..
+            } => {
+                hasher.update(&if remote_url.is_some() { [1] } else { [0] });
                 hasher.update(raw.as_bytes());
             }
             Self::Unknown => {
@@ -147,17 +149,24 @@ fn parse_svg(data: &[u8]) -> anyhow::Result<Svg> {
     })
 }
 
-async fn load_image_from_memory(src: &str, bytes: &[u8], remote: bool) -> Image {
+async fn load_image_from_memory<S: Display>(
+    src: S,
+    bytes: &[u8],
+    remote_url: Option<(url::Url, String)>,
+) -> Image {
     let img = image::load_from_memory(bytes);
 
-    img.inspect_err(|e| trace!(src, %e, "this is not raster image"))
-        .map(|data| Image::Raster { remote, data })
+    img.inspect_err(|e| trace!(%src, %e, "this is not raster image"))
+        .map(|data| Image::Raster {
+            remote_url: remote_url.clone(),
+            data,
+        })
         .or_else(|_| {
-            let svg = parse_svg(bytes).inspect_err(|e| trace!(src, %e, "this is not svg"))?;
+            let svg = parse_svg(bytes).inspect_err(|e| trace!(%src, %e, "this is not svg"))?;
             let raw = String::from_utf8(bytes.to_vec())
-                .inspect_err(|e| warn!(src, %e, "non utf-8 svg"))?;
+                .inspect_err(|e| warn!(%src, %e, "non utf-8 svg"))?;
             Ok::<_, anyhow::Error>(Image::Svg {
-                remote,
+                remote_url: remote_url.map(|(url, _)| url),
                 raw,
                 width: svg.width,
                 height: svg.height,
@@ -168,10 +177,15 @@ async fn load_image_from_memory(src: &str, bytes: &[u8], remote: bool) -> Image 
         .unwrap_or(Image::Unknown)
 }
 
-pub async fn load_remote_image(src: &str) -> Image {
-    let Ok(mut response) = surf::get(src).send().await else {
+pub async fn load_remote_image(url: url::Url) -> Image {
+    let Ok(mut response) = surf::get(&url).send().await else {
         return Image::Unknown;
     };
+
+    let Some(content_type) = response.header("Content-Type") else {
+        return Image::Unknown;
+    };
+    let content_type = content_type.to_string();
 
     let Ok(body) = response
         .body_bytes()
@@ -181,7 +195,7 @@ pub async fn load_remote_image(src: &str) -> Image {
         return Image::Unknown;
     };
 
-    load_image_from_memory(src, body.as_bytes(), true).await
+    load_image_from_memory(&url, body.as_bytes(), Some((url.clone(), content_type))).await
 }
 
 async fn load_local_image<P: AsRef<Path>>(article_path: P, src: &str) -> anyhow::Result<Image> {
@@ -195,16 +209,22 @@ async fn load_local_image<P: AsRef<Path>>(article_path: P, src: &str) -> anyhow:
     let data = smol::fs::read(parent.join(src))
         .await
         .inspect_err(|e| warn!(%e, src, "failed to read local image"))?;
-    Ok(load_image_from_memory(src, &data, false).await)
+    Ok(load_image_from_memory(src, &data, None).await)
 }
 
 pub async fn load_image<P: AsRef<Path>>(article_path: P, src: &str) -> Image {
     if src.starts_with("http://") | src.starts_with("https://") {
-        load_remote_image(src).await
+        let Ok(url) = src.parse() else {
+            warn!(src, "failed to parsse url");
+            return Image::Unknown;
+        };
+        load_remote_image(url).await
     } else if src.starts_with("data://") {
-        Image::Data {
-            url: src.to_owned(),
-        }
+        let Ok(url) = src.parse() else {
+            warn!(src, "failed to parse data uri");
+            return Image::Unknown;
+        };
+        Image::Data { url }
     } else {
         load_local_image(article_path, src)
             .await

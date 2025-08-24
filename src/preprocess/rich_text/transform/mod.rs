@@ -285,12 +285,12 @@ fn transform_impl(
                     }
                     Some(imagetool::Image::Data { url }) => Expanded::Eager {
                         tag: "img".into(),
-                        attrs: hashmap! {"src".into() => url.into()},
+                        attrs: hashmap! {"src".into() => url.to_string().into()},
                         children: vec![],
                     },
                     Some(imagetool::Image::Unknown) | None => Expanded::Eager {
                         tag: "img".into(),
-                        attrs: hashmap! {"src".into() => url.into()},
+                        attrs: hashmap! {"src".into() => url.to_string().into()},
                         children: vec![],
                     },
                 };

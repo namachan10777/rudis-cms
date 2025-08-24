@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use valuable::Valuable;
@@ -40,17 +40,10 @@ impl std::fmt::Display for RasterImageFormat {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub struct ImageTransform {
-    width: Option<u32>,
-    format: Option<RasterImageFormat>,
-}
-
-impl ImageTransform {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.width.map(|w| w == 0).unwrap_or_default() {
-            return Err("Width must be greater than 0".into());
-        }
-        Ok(())
-    }
+    #[serde(default)]
+    pub width: HashSet<u32>,
+    #[serde(default)]
+    pub format: HashSet<RasterImageFormat>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]

@@ -8,14 +8,14 @@ use valuable::Valuable;
 
 use crate::preprocess::imagetool::load_remote_image;
 
-#[derive(Clone, Serialize, Deserialize, Debug, Valuable)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LinkCardImage {
-    url: String,
+    url: url::Url,
     width: usize,
     height: usize,
 }
 
-#[derive(Clone, Debug, Valuable)]
+#[derive(Clone, Debug)]
 pub struct LinkCard {
     title: String,
     description: String,
@@ -115,13 +115,11 @@ async fn resolve_link_impl(link: &str) -> Result<LinkCard, anyhow::Error> {
         .and_then(|url| url.host_str().map(ToString::to_string))
         .unwrap_or_else(|| link.to_owned());
 
-    let image = if let Some(url) = image {
-        let image = load_remote_image(url).await;
-        image.dimensions().map(|(width, height)| LinkCardImage {
-            url: url.to_owned(),
-            width,
-            height,
-        })
+    let image = if let Some(url) = image.and_then(|url| Url::parse(url).ok()) {
+        let image = load_remote_image(url.clone()).await;
+        image
+            .dimensions()
+            .map(|(width, height)| LinkCardImage { url, width, height })
     } else {
         None
     };
@@ -136,7 +134,7 @@ async fn resolve_link_impl(link: &str) -> Result<LinkCard, anyhow::Error> {
         image,
         favicon,
     };
-    info!(card = card.as_value(), "isolated link detected");
+    info!(?card, "isolated link detected");
 
     Ok(card)
 }
