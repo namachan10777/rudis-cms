@@ -270,12 +270,12 @@ fn parse_spanned<'src>(
                 BlockQuoteKind::Tip => AlertKind::Tip,
             };
             MaybeMany::one(Expanded::Lazy {
-                extracted: RawExtracted::Alert { kind },
+                keep: RawExtracted::Alert { kind },
                 children,
             })
         }
         Tag::CodeBlock(CodeBlockKind::Indented) => MaybeMany::one(Expanded::Lazy {
-            extracted: RawExtracted::Codeblock {
+            keep: RawExtracted::Codeblock {
                 meta: Default::default(),
             },
             children,
@@ -283,7 +283,7 @@ fn parse_spanned<'src>(
         Tag::CodeBlock(CodeBlockKind::Fenced(meta)) => {
             let meta = meta.parse().unwrap_or_default();
             MaybeMany::one(Expanded::Lazy {
-                extracted: RawExtracted::Codeblock { meta },
+                keep: RawExtracted::Codeblock { meta },
                 children,
             })
         }
@@ -344,7 +344,7 @@ fn parse_spanned<'src>(
                 attrs,
             };
             let mut body = vec![Expanded::Lazy {
-                extracted: heading,
+                keep: heading,
                 children,
             }];
             body.extend(parse_until_next_heading(level, parser));
@@ -360,7 +360,7 @@ fn parse_spanned<'src>(
             id,
             ..
         } => MaybeMany::one(Expanded::Lazy {
-            extracted: RawExtracted::Image {
+            keep: RawExtracted::Image {
                 title: title.to_string(),
                 id: id.to_string(),
                 url: dest_url.to_string(),
@@ -478,7 +478,7 @@ fn parse_spanned<'src>(
                 id: id.to_string(),
             };
             MaybeMany::one(Expanded::Lazy {
-                extracted,
+                keep: extracted,
                 children,
             })
         }
@@ -509,7 +509,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
                     Expanded::Lazy {
-                        extracted: RawExtracted::Codeblock {
+                        keep: RawExtracted::Codeblock {
                             meta: crate::preprocess::rich_text::CodeblockMeta {
                                 lang: Some("tex".into()),
                                 attrs: Default::default(),
@@ -538,7 +538,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Expanded<RawE
             }
         }
         Event::FootnoteReference(r) => Expanded::Lazy {
-            extracted: RawExtracted::FootnoteReference {
+            keep: RawExtracted::FootnoteReference {
                 id: r.into_string(),
             },
             children: Default::default(),

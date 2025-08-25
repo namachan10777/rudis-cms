@@ -1,61 +1,61 @@
-use std::{collections::HashMap, fmt::Display, path::Path};
+use std::{collections::HashMap, fmt::Display, path::Path, sync::Arc};
 
 use anyhow::Context;
+use data_url::DataUrl;
 use image::{DynamicImage, EncodableLayout, GenericImageView as _};
 use tracing::{trace, warn};
 
-use crate::preprocess::types::{AttrValue, Name};
+use crate::{
+    config::RasterImageFormat,
+    preprocess::types::{AttrValue, Name},
+};
+
+#[derive(Clone, derive_debug::Dbg)]
+pub struct RasterImage {
+    pub src_id: String,
+    pub data: Arc<DynamicImage>,
+    pub format: RasterImageFormat,
+    pub remote_url: Option<url::Url>,
+}
+
+#[derive(Clone, derive_debug::Dbg)]
+pub struct VectorImage {
+    pub src_id: String,
+    pub raw: String,
+    pub remote_url: Option<url::Url>,
+    pub width: u32,
+    pub height: u32,
+    pub attrs: HashMap<Name, AttrValue>,
+    pub content: String,
+}
 
 #[derive(Clone, derive_debug::Dbg)]
 pub enum Image {
-    Raster {
-        remote_url: Option<(url::Url, String)>,
-        #[dbg(skip)]
-        data: DynamicImage,
-    },
-    Svg {
-        remote_url: Option<url::Url>,
-        #[dbg(skip)]
-        raw: String,
-        width: usize,
-        height: usize,
-        attrs: HashMap<Name, AttrValue>,
-        inner_content: String,
-    },
-    Data {
-        url: url::Url,
-    },
-    Unknown,
+    Raster(RasterImage),
+    Vector(VectorImage),
+    Unknown { src_id: String },
 }
 
 impl Image {
-    pub fn dimensions(&self) -> Option<(usize, usize)> {
+    pub fn dimensions(&self) -> Option<(u32, u32)> {
         match self {
-            Image::Raster { data, .. } => {
-                let (w, h) = data.dimensions();
-                Some((w as _, h as _))
-            }
-            Image::Svg { width, height, .. } => Some((*width, *height)),
+            Image::Raster(data) => Some(data.data.dimensions()),
+            Image::Vector(svg) => Some((svg.width, svg.height)),
             _ => None,
         }
     }
 
     pub fn hash(&self, hasher: &mut blake3::Hasher) {
         match self {
-            Self::Data { url } => {
-                hasher.update(url.as_str().as_bytes());
+            Self::Raster(img) => {
+                hasher.update(&if img.remote_url.is_some() { [1] } else { [0] });
+                hasher.update(img.data.as_bytes());
             }
-            Self::Raster { remote_url, data } => {
-                hasher.update(&if remote_url.is_some() { [1] } else { [0] });
-                hasher.update(data.as_bytes());
+            Self::Vector(svg) => {
+                hasher.update(&if svg.remote_url.is_some() { [1] } else { [0] });
+                hasher.update(svg.raw.as_bytes());
             }
-            Self::Svg {
-                remote_url, raw, ..
-            } => {
-                hasher.update(&if remote_url.is_some() { [1] } else { [0] });
-                hasher.update(raw.as_bytes());
-            }
-            Self::Unknown => {
+            Self::Unknown { .. } => {
                 hasher.update("unknown".as_bytes());
             }
         }
@@ -101,8 +101,8 @@ fn format_element_with_children(node: &roxmltree::Node) -> String {
 }
 
 pub struct Svg {
-    pub width: usize,
-    pub height: usize,
+    pub width: u32,
+    pub height: u32,
     pub attrs: HashMap<Name, AttrValue>,
     pub content: String,
 }
@@ -111,8 +111,8 @@ fn parse_svg(data: &[u8]) -> anyhow::Result<Svg> {
     let rtree = usvg::Tree::from_data(data, &usvg::Options::default())?;
 
     let size = rtree.size();
-    let width = size.width() as usize;
-    let height = size.height() as usize;
+    let width = size.width() as u32;
+    let height = size.height() as u32;
 
     // Parse the SVG XML to extract root attributes and inner content
     let svg_string = String::from_utf8_lossy(data);
@@ -149,53 +149,74 @@ fn parse_svg(data: &[u8]) -> anyhow::Result<Svg> {
     })
 }
 
-async fn load_image_from_memory<S: Display>(
-    src: S,
+async fn load_image_from_memory(
+    src: impl Display,
     bytes: &[u8],
-    remote_url: Option<(url::Url, String)>,
+    remote_url: Option<url::Url>,
 ) -> Image {
     let img = image::load_from_memory(bytes);
 
+    let format = match image::guess_format(&bytes) {
+        Ok(image::ImageFormat::Avif) => RasterImageFormat::Avif,
+        Ok(image::ImageFormat::Png) => RasterImageFormat::Png,
+        Ok(image::ImageFormat::WebP) => RasterImageFormat::Webp,
+        Ok(image::ImageFormat::Jpeg) => RasterImageFormat::Jpeg,
+        Ok(format) => {
+            warn!(?format, "unsupported image format. fallback to png");
+            RasterImageFormat::Png
+        }
+        Err(e) => {
+            warn!(%e, "failed to guess image format");
+            RasterImageFormat::Png
+        }
+    };
+
     img.inspect_err(|e| trace!(%src, %e, "this is not raster image"))
-        .map(|data| Image::Raster {
-            remote_url: remote_url.clone(),
-            data,
+        .map(|data| {
+            Image::Raster(RasterImage {
+                src_id: src.to_string(),
+                data: Arc::new(data),
+                format,
+                remote_url: remote_url.clone(),
+            })
         })
         .or_else(|_| {
             let svg = parse_svg(bytes).inspect_err(|e| trace!(%src, %e, "this is not svg"))?;
             let raw = String::from_utf8(bytes.to_vec())
                 .inspect_err(|e| warn!(%src, %e, "non utf-8 svg"))?;
-            Ok::<_, anyhow::Error>(Image::Svg {
-                remote_url: remote_url.map(|(url, _)| url),
+            Ok::<_, anyhow::Error>(Image::Vector(VectorImage {
+                src_id: src.to_string(),
                 raw,
+                remote_url,
                 width: svg.width,
                 height: svg.height,
                 attrs: svg.attrs,
-                inner_content: svg.content,
-            })
+                content: svg.content,
+            }))
         })
-        .unwrap_or(Image::Unknown)
+        .unwrap_or(Image::Unknown {
+            src_id: src.to_string(),
+        })
 }
 
 pub async fn load_remote_image(url: url::Url) -> Image {
     let Ok(mut response) = surf::get(&url).send().await else {
-        return Image::Unknown;
+        return Image::Unknown {
+            src_id: url.to_string(),
+        };
     };
-
-    let Some(content_type) = response.header("Content-Type") else {
-        return Image::Unknown;
-    };
-    let content_type = content_type.to_string();
 
     let Ok(body) = response
         .body_bytes()
         .await
         .inspect_err(|e| warn!(%e, "failed to fetch content body"))
     else {
-        return Image::Unknown;
+        return Image::Unknown {
+            src_id: url.to_string(),
+        };
     };
 
-    load_image_from_memory(&url, body.as_bytes(), Some((url.clone(), content_type))).await
+    load_image_from_memory(&url, body.as_bytes(), Some(url.clone())).await
 }
 
 async fn load_local_image<P: AsRef<Path>>(article_path: P, src: &str) -> anyhow::Result<Image> {
@@ -216,18 +237,23 @@ pub async fn load_image<P: AsRef<Path>>(article_path: P, src: &str) -> Image {
     if src.starts_with("http://") | src.starts_with("https://") {
         let Ok(url) = src.parse() else {
             warn!(src, "failed to parsse url");
-            return Image::Unknown;
+            return Image::Unknown {
+                src_id: src.to_string(),
+            };
         };
         load_remote_image(url).await
-    } else if src.starts_with("data://") {
-        let Ok(url) = src.parse() else {
-            warn!(src, "failed to parse data uri");
-            return Image::Unknown;
+    } else if let Ok(data_url) = DataUrl::process(&src) {
+        let Ok((data, _)) = data_url.decode_to_vec() else {
+            return Image::Unknown {
+                src_id: src.to_string(),
+            };
         };
-        Image::Data { url }
+        load_image_from_memory(src, &data, None).await
     } else {
         load_local_image(article_path, src)
             .await
-            .unwrap_or(Image::Unknown)
+            .unwrap_or(Image::Unknown {
+                src_id: src.to_string(),
+            })
     }
 }

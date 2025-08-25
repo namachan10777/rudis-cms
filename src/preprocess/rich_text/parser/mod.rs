@@ -16,7 +16,7 @@ fn extract_image_src(ast: &Expanded<RawExtracted>) -> Vec<String> {
     match ast {
         Expanded::Text(_) => Vec::new(),
         Expanded::Lazy {
-            extracted: RawExtracted::Image { url, .. },
+            keep: RawExtracted::Image { url, .. },
             ..
         } => vec![url.to_string()],
         Expanded::Lazy { children, .. } => children.iter().flat_map(extract_image_src).collect(),

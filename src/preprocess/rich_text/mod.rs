@@ -1,11 +1,12 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{collections::HashMap, hash::Hash};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use valuable::Valuable;
 
-use crate::preprocess::rich_text::transform::isolated_url::LinkCard;
+use crate::preprocess::imagetool;
+use crate::preprocess::rich_text::transform::isolated_url::{LinkCard, LinkCardImage};
 use crate::preprocess::types::{AttrValue, Name};
 use codeblock::meta_parser::CodeblockMeta;
 
@@ -66,17 +67,34 @@ pub enum Extracted {
     IsolatedLink {
         card: LinkCard,
     },
-    RasterImage {
-        #[dbg(skip)]
-        data: Arc<image::DynamicImage>,
+    Image {
         alt: String,
-        id: String,
+        id: Option<String>,
+        image: imagetool::Image,
     },
-    VectorImage {
-        width: u32,
-        height: u32,
-        raw: String,
+    Codeblock {
+        title: Option<String>,
+        lang: Option<String>,
+        lines: usize,
+    },
+    Alert {
+        kind: AlertKind,
+    },
+    Heading {
+        level: u8,
+        slug: String,
         attrs: HashMap<Name, AttrValue>,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+pub enum Lazy {
+    IsolatedLink {
+        title: String,
+        description: String,
+        image: Option<LinkCardImage>,
+        favicon: Option<String>,
     },
     Codeblock {
         title: Option<String>,
@@ -102,7 +120,7 @@ pub enum Expanded<E> {
     },
     Text(String),
     Lazy {
-        extracted: E,
+        keep: E,
         children: Vec<Expanded<E>>,
     },
 }

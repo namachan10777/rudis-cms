@@ -8,22 +8,31 @@ use crate::backend::{self, Backend};
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
 #[serde(rename_all = "snake_case")]
 pub enum RasterImageFormat {
+    Jpeg,
     Png,
     Webp,
     Avif,
 }
 
+impl Default for RasterImageFormat {
+    fn default() -> Self {
+        Self::Jpeg
+    }
+}
+
 impl RasterImageFormat {
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Jpeg => "jpeg",
             Self::Png => "png",
             Self::Webp => "webp",
             Self::Avif => "avif",
         }
     }
 
-    pub fn as_mime_str(&self) -> &str {
+    pub fn as_mime_str(&self) -> &'static str {
         match self {
+            Self::Jpeg => "image/jpeg",
             Self::Png => "image/png",
             Self::Webp => "image/webp",
             Self::Avif => "image/avif",

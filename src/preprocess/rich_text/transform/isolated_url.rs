@@ -4,23 +4,22 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use url::Url;
-use valuable::Valuable;
 
 use crate::preprocess::imagetool::load_remote_image;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LinkCardImage {
     url: url::Url,
-    width: usize,
-    height: usize,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct LinkCard {
-    title: String,
-    description: String,
-    image: Option<LinkCardImage>,
-    favicon: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub image: Option<LinkCardImage>,
+    pub favicon: Option<String>,
 }
 
 impl LinkCard {

@@ -51,3 +51,4 @@ itertools = "0.14"
 async-channel = "2"
 num_cpus = "1"
 indexmap = { version = "2", features = ["serde"] }
+data-url = "0.3.2"

@@ -348,19 +348,19 @@ fn hash_recursive(hasher: &mut blake3::Hasher, ast: &Expanded<Extracted>) {
         }
         Expanded::Text(_) => {}
         Expanded::Lazy {
-            extracted: Extracted::RasterImage { data, .. },
+            keep: Extracted::Raster(img),
             children,
         } => {
-            hasher.update(data.as_bytes());
+            hasher.update(img.data.as_bytes());
             children
                 .iter()
                 .for_each(|child| hash_recursive(hasher, child));
         }
         Expanded::Lazy {
-            extracted: Extracted::VectorImage { raw, .. },
+            keep: Extracted::Vector(img),
             children,
         } => {
-            hasher.update(raw.as_bytes());
+            hasher.update(img.raw.as_bytes());
             children
                 .iter()
                 .for_each(|child| hash_recursive(hasher, child));

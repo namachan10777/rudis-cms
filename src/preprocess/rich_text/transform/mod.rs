@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::Arc,
 };
 
 use futures::future::join_all;
@@ -31,7 +30,7 @@ struct Extracted {
 fn analyze(ctx: &mut Extracted, src: &Expanded<RawExtracted>) {
     match src {
         Expanded::Lazy {
-            extracted,
+            keep: extracted,
             children,
         } => {
             match extracted {
@@ -52,7 +51,7 @@ fn analyze(ctx: &mut Extracted, src: &Expanded<RawExtracted>) {
         Expanded::Eager { tag, children, .. } if tag.as_ref() == "p" => {
             if let &[
                 Expanded::Lazy {
-                    extracted:
+                    keep:
                         RawExtracted::Link {
                             link_type: LinkType::Autolink,
                             dest_url,
@@ -135,7 +134,7 @@ fn transform_impl(
         } if tag.as_ref() == "p" => {
             if let &[
                 Expanded::Lazy {
-                    extracted:
+                    keep:
                         RawExtracted::Link {
                             link_type: LinkType::Autolink,
                             dest_url,
@@ -147,7 +146,7 @@ fn transform_impl(
             {
                 let card = ctx.links.get(dest_url).expect("why?");
                 Expanded::Lazy {
-                    extracted: rich_text::Extracted::IsolatedLink { card: card.clone() },
+                    keep: rich_text::Extracted::IsolatedLink { card: card.clone() },
                     children: vec![],
                 }
             } else {
@@ -174,11 +173,11 @@ fn transform_impl(
                 .collect::<Vec<_>>(),
         },
         Expanded::Lazy {
-            extracted,
+            keep: extracted,
             children,
         } => match extracted {
             RawExtracted::Alert { kind } => Expanded::Lazy {
-                extracted: rich_text::Extracted::Alert { kind },
+                keep: rich_text::Extracted::Alert { kind },
                 children: children
                     .into_iter()
                     .map(|child| transform_impl(ctx, child))
@@ -190,7 +189,7 @@ fn transform_impl(
                 let lines = content.lines().count();
                 let content = highlighter::highlight(&content, &meta.lang).unwrap_or(content);
                 Expanded::Lazy {
-                    extracted: rich_text::Extracted::Codeblock {
+                    keep: rich_text::Extracted::Codeblock {
                         title: meta
                             .attrs
                             .get("title")
@@ -217,7 +216,7 @@ fn transform_impl(
                     attrs,
                 };
                 Expanded::Lazy {
-                    extracted,
+                    keep: extracted,
                     children: children
                         .into_iter()
                         .map(|child| transform_impl(ctx, child))
@@ -245,53 +244,21 @@ fn transform_impl(
             }
             RawExtracted::Image { title, id, url } => {
                 let img = match ctx.images.get(&url).cloned() {
-                    Some(imagetool::Image::Raster { data, .. }) => Expanded::Lazy {
-                        extracted: rich_text::Extracted::RasterImage {
-                            data: Arc::new(data),
+                    Some(image) => Expanded::Lazy {
+                        keep: rich_text::Extracted::Image {
                             alt: title,
-                            id: id.to_string(),
+                            id: Some(id),
+                            image,
                         },
                         children: Default::default(),
                     },
-                    Some(imagetool::Image::Svg {
-                        width,
-                        height,
-                        mut attrs,
-                        inner_content,
-                        raw,
-                        ..
-                    }) => {
-                        if ctx.embed_svg {
-                            attrs.insert("role".into(), "img".into());
-                            Expanded::Eager {
-                                tag: "svg".into(),
-                                attrs,
-                                children: raw_to_expanded(&inner_content),
-                            }
-                        } else {
-                            Expanded::Lazy {
-                                extracted: rich_text::Extracted::VectorImage {
-                                    raw,
-                                    width: width as _,
-                                    height: height as _,
-                                    attrs: attrs
-                                        .into_iter()
-                                        .map(|(name, value)| (name.into(), value))
-                                        .collect(),
-                                },
-                                children: raw_to_expanded(&inner_content),
-                            }
-                        }
-                    }
-                    Some(imagetool::Image::Data { url }) => Expanded::Eager {
-                        tag: "img".into(),
-                        attrs: hashmap! {"src".into() => url.to_string().into()},
-                        children: vec![],
-                    },
-                    Some(imagetool::Image::Unknown) | None => Expanded::Eager {
-                        tag: "img".into(),
-                        attrs: hashmap! {"src".into() => url.to_string().into()},
-                        children: vec![],
+                    None => Expanded::Lazy {
+                        keep: rich_text::Extracted::Image {
+                            alt: title,
+                            id: Some(id),
+                            image: imagetool::Image::Unknown { src_id: url },
+                        },
+                        children: Default::default(),
                     },
                 };
                 Expanded::Eager {
