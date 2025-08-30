@@ -1,3 +1,3 @@
-# Nothing-CMS
+# Rudis CMS
 
-Headless & Bodyless CMS.
+Edge-oriented CMS

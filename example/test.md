@@ -1,10 +1,6 @@
 ---
 id: test
-title: Test
-description: This is a test page.
-published_at: 2025-08-31 00:00:00Z
-tags: [test, example]
-og_image: ./test.jpg
+tags: []
 ---
 
 ## This is test page

@@ -1,47 +1,14 @@
 blog:
-  glob: "**/*.md"
-  backend:
-    type: cloudflare
-    database_id: "0000000000000000000001"
-    table: "blogs"
+  syntax:
+    type: markdown
+    column: body
   schema:
     id:
       type: id
-    body:
-      type: markdown
-      embed_svg: true
-      document_body: true
-      config:
-        image_table: "blog_images"
-    title:
-      type: string
-      required: true
-    description:
-      type: string
-    published_at:
-      type: datetime
-      required: true
-      index: true
-    tags:
-      type: set
-      item: string
-      column_name: "tag"
-      backend:
-        type: d1
-        table: blog_tags
-    meta:
-      type: json
     hash:
       type: hash
-    og_image:
-      type: image
-      required: true
-      backend:
-        type: r2
-        zone: assets.blog.example.com
-        bucket: blog-assets
-        prefix: blog/og-images
-      transform:
-        type: simple
-        width: 1200
-        format: avif
+    tags:
+      type: records
+      schema:
+        tag:
+          type: id

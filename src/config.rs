@@ -1,240 +1,160 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::HashSet, path::PathBuf};
 
-use serde::{Deserialize, Serialize};
-use valuable::Valuable;
+use indexmap::IndexMap;
+use serde::Deserialize;
 
-use crate::backend::{self, Backend};
+#[derive(Deserialize, Clone)]
+pub enum ImageStorage {
+    R2 {
+        zone: String,
+        bucket: String,
+        prefix: Option<String>,
+    },
+    Asset {
+        zone: String,
+        remote_prefix: Option<String>,
+        local_dir: PathBuf,
+    },
+}
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
-#[serde(rename_all = "snake_case")]
-pub enum RasterImageFormat {
+#[derive(Deserialize, Clone)]
+pub enum FileStorage {
+    R2 {
+        zone: Option<String>,
+        bucket: String,
+        prefix: Option<String>,
+    },
+    Asset {
+        zone: String,
+        remote_prefix: Option<String>,
+        local_dir: PathBuf,
+    },
+}
+
+#[derive(Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ImageFormat {
     Jpeg,
     Png,
     Webp,
     Avif,
 }
 
-impl Default for RasterImageFormat {
-    fn default() -> Self {
-        Self::Jpeg
-    }
+#[derive(Deserialize, Clone)]
+pub enum ImageTransform {
+    Transform {
+        width: u32,
+        format: ImageFormat,
+    },
+    Matrix {
+        widths: HashSet<u32>,
+        formats: HashSet<ImageFormat>,
+        default_format: ImageFormat,
+    },
 }
 
-impl RasterImageFormat {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Jpeg => "jpeg",
-            Self::Png => "png",
-            Self::Webp => "webp",
-            Self::Avif => "avif",
-        }
-    }
-
-    pub fn as_mime_str(&self) -> &'static str {
-        match self {
-            Self::Jpeg => "image/jpeg",
-            Self::Png => "image/png",
-            Self::Webp => "image/webp",
-            Self::Avif => "image/avif",
-        }
-    }
+#[derive(Deserialize, Clone)]
+pub struct MarkdownImageConfig {
+    pub transform: ImageTransform,
+    pub storage: ImageStorage,
 }
 
-impl std::fmt::Display for RasterImageFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
+#[derive(Deserialize, Clone)]
+pub struct MarkdownConfig {}
+
+#[derive(Deserialize, Clone)]
+pub enum MarkdownStorage {
+    Inline,
+    Kv {
+        namespace: String,
+        prefix: Option<String>,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub struct ImageTransform {
-    #[serde(default)]
-    pub width: HashSet<u32>,
-    #[serde(default)]
-    pub format: HashSet<RasterImageFormat>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub struct RichTextImageBackend {
-    zone: String,
-    bucket: String,
-    prefix: Option<String>,
-}
-
-impl RichTextImageBackend {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.zone.is_empty() || self.bucket.is_empty() {
-            return Err("R2 zone and bucket must not be empty".into());
-        }
-        if self
-            .prefix
-            .as_ref()
-            .map(|prefix| prefix.starts_with("/") || prefix.ends_with("/"))
-            .unwrap_or_default()
-        {
-            return Err("R2 prefix must not start or end with a slash".into());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Valuable)]
-#[serde(rename_all = "snake_case")]
-pub enum SetItemType {
-    String,
-    Integer,
-    Boolean,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-pub struct RichTextImageTransforms {
-    width: Option<Vec<u32>>,
-    format: Option<Vec<u32>>,
-}
-
-impl RichTextImageTransforms {
-    pub fn validate(&self) -> Result<(), String> {
-        if let Some(widths) = &self.width
-            && (widths.is_empty() || widths.contains(&0))
-        {
-            return Err("Width must be greater than 0".into());
-        }
-        if let Some(formats) = &self.format
-            && formats.is_empty()
-        {
-            return Err("At least one format must be specified".into());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct MarkdownImageConfig<I> {
-    backend: I,
-    transforms: RichTextImageTransforms,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum FieldDef<B: Backend> {
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+pub enum Field {
+    Id,
+    Hash,
     String {
         #[serde(default)]
-        required: bool,
-        #[serde(default)]
         index: bool,
+        #[serde(default)]
+        required: bool,
     },
     Integer {
         #[serde(default)]
+        index: bool,
+        #[serde(default)]
         required: bool,
+    },
+    Real {
         #[serde(default)]
         index: bool,
+        #[serde(default)]
+        required: bool,
     },
     Boolean {
         #[serde(default)]
-        required: bool,
-        #[serde(default)]
         index: bool,
-    },
-    Datetime {
         #[serde(default)]
         required: bool,
-        #[serde(default)]
-        index: bool,
     },
     Date {
         #[serde(default)]
+        index: bool,
+        #[serde(default)]
         required: bool,
+    },
+    Datetime {
         #[serde(default)]
         index: bool,
-    },
-    Id {},
-    Hash {},
-    Json {
         #[serde(default)]
         required: bool,
     },
     Image {
         #[serde(default)]
-        required: bool,
-        backend: B::ImageBackendConfig,
-        transform: Option<ImageTransform>,
-    },
-    Blob {
+        index: bool,
         #[serde(default)]
         required: bool,
-        backend: B::BlobBackendConfig,
+        storage: ImageStorage,
+        transform: ImageTransform,
+    },
+    File {
+        #[serde(default)]
+        index: bool,
+        #[serde(default)]
+        required: bool,
+        storage: FileStorage,
+    },
+    Records {
+        #[serde(default)]
+        index: bool,
+        #[serde(default)]
+        required: bool,
+        parent_id_names: Vec<String>,
+        schema: IndexMap<String, Field>,
+        table: String,
     },
     Markdown {
         #[serde(default)]
-        embed_svg: bool,
-        #[serde(default)]
-        document_body: bool,
-        #[serde(default)]
         required: bool,
-        config: B::RichTextConfig,
-    },
-    Set {
-        #[serde(default)]
-        at_least_once: bool,
-        item: SetItemType,
-        column_name: Option<String>,
-        backend: B::SetBackendConfig,
+        image: MarkdownImageConfig,
+        config: MarkdownConfig,
+        storage: MarkdownStorage,
     },
 }
 
-impl<B: Backend> FieldDef<B> {
-    pub fn is_required(&self) -> bool {
-        match self {
-            Self::Boolean { required, .. } => *required,
-            Self::Date { required, .. } => *required,
-            Self::Datetime { required, .. } => *required,
-            Self::Id {} => true,
-            Self::Hash {} => true,
-            Self::Image { required, .. } => *required,
-            Self::Integer { required, .. } => *required,
-            Self::Json { required, .. } => *required,
-            Self::Markdown { required, .. } => *required,
-            Self::Set { at_least_once, .. } => *at_least_once,
-            Self::String { required, .. } => *required,
-            Self::Blob { required, .. } => *required,
-        }
-    }
-
-    pub fn needs_index(&self) -> bool {
-        match self {
-            Self::Boolean { index, .. } => *index,
-            Self::Date { index, .. } => *index,
-            Self::Datetime { index, .. } => *index,
-            Self::Integer { index, .. } => *index,
-            Self::String { index, .. } => *index,
-            _ => false,
-        }
-    }
+#[derive(Deserialize)]
+pub enum DocumentSyntax {
+    Yaml,
+    Toml,
+    Markdown { column: String },
 }
 
-pub trait ImageBackendConfig {
-    fn validate(&self) -> Result<(), String>;
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-pub struct D1Config {
-    pub database_id: String,
-    pub table: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Valuable)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum BackendVariants {
-    Cloudflare(backend::cloudflare::BackendConfig),
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CollectionConfig {
-    pub backend: BackendVariants,
-    pub schema: serde_json::Value,
+#[derive(Deserialize)]
+pub struct Collection {
     pub glob: String,
+    pub syntax: DocumentSyntax,
+    pub table: String,
+    pub schema: IndexMap<String, Field>,
 }
-
-pub type Config = HashMap<String, CollectionConfig>;

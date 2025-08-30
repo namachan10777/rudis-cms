@@ -1,4 +1,4 @@
-use crate::preprocess::types::{AttrValue, Name};
+use crate::field::types::{AttrValue, Name};
 use std::{collections::HashMap, str::FromStr};
 
 use valuable::Valuable;
@@ -203,7 +203,7 @@ impl FromStr for CodeblockMeta {
 
 #[cfg(test)]
 mod tests {
-    use crate::preprocess::types::AttrValue;
+    use crate::field::types::AttrValue;
 
     use super::parse_codeblock_info;
 

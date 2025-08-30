@@ -1,26 +1,60 @@
-use std::sync::Arc;
+use url::Url;
 
-use serde::de::DeserializeOwned;
+use crate::{
+    config::{self, ImageFormat},
+    field::object_loader::{self, SvgNode},
+    record::CompoundId,
+};
 
-use crate::preprocess::{Document, Schema};
+struct ImageVariant {
+    width: u32,
+    height: u32,
+    format: ImageFormat,
+    url: Option<url::Url>,
+}
 
-pub mod cloudflare;
+pub struct ImageLoctaor<'i> {
+    image: &'i object_loader::Image,
+    id: CompoundId,
+    width: Option<u32>,
+    url: Option<url::Url>,
+    image_format: ImageFormat,
+    variants: Vec<ImageVariant>,
+}
 
-pub trait Backend: Sized {
-    type Error: Send + Sync + 'static + std::error::Error;
+trait RasterImageLocator {
+    fn locate_default(&self, width: u32, format: ImageFormat) -> Url;
+    fn locate_variant(&self, width: u32, format: ImageFormat) -> Url;
+}
 
-    type ImageBackendConfig: DeserializeOwned;
-    type BlobBackendConfig: DeserializeOwned;
-    type SetBackendConfig: DeserializeOwned;
-    type BackendConfig: DeserializeOwned;
-    type RichTextConfig: DeserializeOwned;
+trait VectorImageLocator {
+    fn locate(&self) -> Url;
+}
 
-    fn print_schema(&self) -> String;
+trait FileLocator {
+    fn locate(&self) -> Url;
+}
 
-    fn init(
-        config: Self::BackendConfig,
-        schema: Arc<Schema<Self>>,
-    ) -> impl Future<Output = Result<Self, Self::Error>>;
+pub struct RasterImage {
+    pub data: image::DynamicImage,
+    pub hash: blake3::Hash,
+    pub origin: object_loader::Origin,
+    pub derived_id: String,
+}
 
-    fn batch(&self, documents: Vec<Document>) -> impl Future<Output = Result<(), Self::Error>>;
+pub struct VectorImage {
+    pub data: SvgNode,
+    pub dimention: (u32, u32),
+    pub hash: blake3::Hash,
+    pub origin: Option<url::Url>,
+    pub derived_id: String,
+}
+
+pub trait RecordBackend {
+    type Error;
+    fn raster_image_locator(&self, id: &CompoundId, image: &RasterImage)
+    -> impl RasterImageLocator;
+    fn vector_image_locator(&self, id: &CompoundId, image: &VectorImage)
+    -> impl VectorImageLocator;
+    fn file_locator(&self, id: &CompoundId, file: &object_loader::Object) -> impl FileLocator;
 }
