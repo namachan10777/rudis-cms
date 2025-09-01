@@ -1,0 +1,14 @@
+{%- for table in tables %}
+CREATE TABLE IF NOT EXISTS {{ table.name }} (
+    {%- for column in table.columns %}
+    {{ column.name }} {{ column.type }}{% if column.not_null %} NOT NULL{% endif %},
+    {%- endfor -%}
+    {% if table.parent != nil %}
+    FOREIGN KEY ({{ table.parent.local_ids | join: ", " }}) REFERENCES {{ table.parent.table }}({{ table.parent.parent_ids | join: ", " }}) ON CASCADE DELETE,
+    {%- endif %}
+    PRIMARY KEY ({{ table.primary_key | join: ", " }})
+);
+{% for index in table.indexes -%}
+CREATE INDEX IF NOT EXISTS {{ index.name }} ON {{ table.name }}({{ index.index }});
+{% endfor %}
+{% endfor -%}

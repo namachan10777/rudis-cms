@@ -1,6 +1,7 @@
 ---
 id: test
 tags: [tech]
+og_image: ./test.jpg
 ---
 
 ## This is test page

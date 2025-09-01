@@ -119,15 +119,11 @@ pub enum Field {
     },
     Image {
         #[serde(default)]
-        index: bool,
-        #[serde(default)]
         required: bool,
         storage: ImageStorage,
         transform: ImageTransform,
     },
     File {
-        #[serde(default)]
-        index: bool,
         #[serde(default)]
         required: bool,
         storage: FileStorage,

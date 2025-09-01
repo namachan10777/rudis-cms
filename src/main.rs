@@ -9,6 +9,7 @@ use tracing::{error, info};
 #[derive(clap::Subcommand)]
 enum SubCommand {
     Batch,
+    ShowSchema,
 }
 
 #[derive(clap::Parser)]
@@ -21,6 +22,16 @@ struct Opts {
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
+        SubCommand::ShowSchema => {
+            let config = smol::fs::read_to_string(&opts.config).await?;
+            let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
+            for (name, collection) in &config {
+                let schema = schema::Schema::tables(&collection)?;
+                println!("Table: {}", name);
+                println!("{}", rudis_cms::sql::render_ddl(schema));
+            }
+            Ok(())
+        }
         SubCommand::Batch => {
             let mut hasher = blake3::Hasher::new();
             let config = smol::fs::read_to_string(&opts.config).await?;

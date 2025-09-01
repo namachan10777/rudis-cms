@@ -18,7 +18,7 @@ blog:
           type: r2
           zone: www.namachan10777.dev
           bucket: images
-          prefix: post
+          prefix: post/image
         transform:
           type: matrix
           widths: [480, 720, 1080, 1920]
@@ -28,6 +28,21 @@ blog:
       storage:
         type: kv
         namespace: kv
+    og_image:
+      type: image
+      storage:
+        type: r2
+        zone: www.namachan10777.dev
+        bucket: images
+        prefix: post/og
+      transform:
+        type: transform
+        width: 1200
+        format: avif
+    published:
+      type: datetime
+      index: true
+      required: true
     tags:
       type: records
       inherit_ids: [post_id]

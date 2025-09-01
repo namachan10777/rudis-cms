@@ -7,6 +7,7 @@ pub mod config;
 pub mod field;
 pub mod record;
 pub mod schema;
+pub mod sql;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {detail}")]

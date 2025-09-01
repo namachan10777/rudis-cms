@@ -12,8 +12,15 @@ pub enum Error {
     HashUndefined,
 }
 
+#[derive(Debug, Clone)]
+pub struct ParentTable {
+    pub(crate) id_names: Vec<String>,
+    pub(crate) name: String,
+}
+
 #[derive(Debug)]
 pub struct Schema {
+    pub(crate) parent: Option<ParentTable>,
     pub(crate) fields: IndexMap<String, FieldType>,
     pub(crate) inherit_ids: Vec<String>,
     pub(crate) id_name: String,
@@ -51,13 +58,11 @@ pub(crate) enum FieldType {
         index: bool,
     },
     Image {
-        index: bool,
         required: bool,
         storage: config::ImageStorage,
         transform: config::ImageTransform,
     },
     File {
-        index: bool,
         required: bool,
         storage: config::FileStorage,
     },
@@ -78,20 +83,33 @@ impl FieldType {}
 impl Schema {
     fn add_table(
         tables: &mut IndexMap<String, Arc<Self>>,
+        parent: Option<ParentTable>,
         schema: &IndexMap<String, config::Field>,
         inherit_ids: Vec<String>,
         table: String,
     ) -> Result<(), Error> {
-        let mut id_name = None;
+        let id_name = schema
+            .iter()
+            .find_map(|(name, def)| {
+                if matches!(def, config::Field::Id) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .ok_or(Error::IdUndefined)?;
+        let mut id_names = inherit_ids.clone();
+        id_names.push(id_name.clone());
+        let current_table_to_referenced = ParentTable {
+            name: table.clone(),
+            id_names,
+        };
         let mut hash_name = None;
         let fields = schema
             .iter()
             .map(|(name, def)| {
                 let field = match &def {
-                    config::Field::Id => {
-                        id_name = Some(name.clone());
-                        FieldType::Id
-                    }
+                    config::Field::Id => FieldType::Id,
                     config::Field::Hash => {
                         hash_name = Some(name.clone());
                         FieldType::Hash
@@ -135,32 +153,31 @@ impl Schema {
                         required,
                         transform,
                         storage,
-                        index,
                     } => FieldType::Image {
                         required: *required,
                         transform: transform.clone(),
                         storage: storage.clone(),
-                        index: *index,
                     },
-                    config::Field::File {
-                        required,
-                        storage,
-                        index,
-                    } => FieldType::File {
+                    config::Field::File { required, storage } => FieldType::File {
                         required: *required,
                         storage: storage.clone(),
-                        index: *index,
                     },
                     config::Field::Records {
                         required,
                         inherit_ids,
                         schema,
-                        table,
+                        table: child_table,
                         ..
                     } => {
-                        Self::add_table(tables, schema, inherit_ids.clone(), table.clone())?;
+                        Self::add_table(
+                            tables,
+                            Some(current_table_to_referenced.clone()),
+                            schema,
+                            inherit_ids.clone(),
+                            child_table.clone(),
+                        )?;
                         FieldType::Records {
-                            table: table.clone(),
+                            table: child_table.clone(),
                             required: *required,
                         }
                     }
@@ -171,7 +188,8 @@ impl Schema {
         tables.insert(
             table,
             Arc::new(Self {
-                id_name: id_name.ok_or(Error::IdUndefined)?,
+                parent,
+                id_name,
                 hash_name: hash_name,
                 fields,
                 inherit_ids,
@@ -184,6 +202,7 @@ impl Schema {
         let mut tables = IndexMap::new();
         Self::add_table(
             &mut tables,
+            None,
             &config.schema,
             Default::default(),
             config.table.clone(),
