@@ -7,8 +7,10 @@ use pulldown_cmark::{
 };
 use tracing::warn;
 
-use crate::field::{
-    rich_text::{AlertKind, Node, parser::meta_parser::CodeblockMeta, raw_to_expanded},
+use crate::field::markdown::{
+    AlertKind, Node,
+    parser::meta_parser::CodeblockMeta,
+    raw_to_expanded,
     types::{AttrValue, Name},
 };
 
@@ -17,7 +19,7 @@ use super::KeepRaw;
 struct ParserImpl<'src> {
     parser: pulldown_cmark::Parser<'src>,
     lookahead: Vec<Event<'src>>,
-    footnotes: IndexMap<String, Node<KeepRaw>>,
+    footnotes: IndexMap<String, Vec<Node<KeepRaw>>>,
 }
 
 impl<'src> ParserImpl<'src> {
@@ -284,14 +286,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             children,
         }),
         Tag::FootnoteDefinition(id) => {
-            parser.footnotes.insert(
-                id.to_string(),
-                Node::Eager {
-                    tag: "p".into(),
-                    attrs: hashmap! {},
-                    children,
-                },
-            );
+            parser.footnotes.insert(id.to_string(), children);
             MaybeMany::none()
         }
         Tag::Heading {
@@ -321,7 +316,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
                 ])
                 .collect::<IndexMap<Name, AttrValue>>();
             let heading = KeepRaw::Heading {
-                level: level as u8,
+                level: level.into(),
                 attrs,
             };
             let mut body = vec![Node::Lazy {

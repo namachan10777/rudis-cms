@@ -2,19 +2,16 @@ use std::collections::{HashMap, HashSet};
 
 use futures::future::join_all;
 use tracing::warn;
+use url::Url;
 
 use crate::field::{
+    markdown::{
+        LinkType, Node,
+        compress::{LinkCard, LinkCardImage},
+        parser::KeepRaw,
+    },
     object_loader,
-    rich_text::{LinkType, Node, parser::KeepRaw},
 };
-
-pub(crate) struct LinkCard {
-    pub(crate) title: String,
-    pub(crate) description: String,
-    pub(crate) image: Option<object_loader::Image>,
-    pub(crate) favicon: Option<object_loader::Image>,
-    pub(crate) href: url::Url,
-}
 
 #[derive(Default)]
 pub(super) struct LinkCardExtractor<'s> {
@@ -64,8 +61,20 @@ impl<'s> LinkCardExtractor<'s> {
     }
 }
 
-pub(super) struct LinkCardResolver<'s> {
-    links: HashMap<&'s str, LinkCard>,
+pub(super) struct LinkCardResolver {
+    links: HashMap<String, LinkCard>,
+}
+
+async fn load_image(src: &str) -> Option<LinkCardImage> {
+    let url = Url::parse(src).ok()?;
+    let image = object_loader::load_image(src, None).await.ok()?;
+    let (width, height) = image.body.dimensions();
+    Some(LinkCardImage {
+        src: url,
+        width,
+        height,
+        content_type: image.content_type,
+    })
 }
 
 async fn resolve_link_card(link: &str) -> Result<LinkCard, anyhow::Error> {
@@ -152,14 +161,14 @@ async fn resolve_link_card(link: &str) -> Result<LinkCard, anyhow::Error> {
         .and_then(|url| url.host_str().map(ToString::to_string))
         .unwrap_or_else(|| link.to_owned());
 
-    let image = if let Some(image) = image {
-        object_loader::load_image(image, None).await.ok()
+    let og_image = if let Some(image) = image {
+        load_image(image).await
     } else {
         None
     };
 
     let favicon = if let Some(favicon) = favicon {
-        object_loader::load_image(&favicon, None).await.ok()
+        load_image(&favicon).await
     } else {
         None
     };
@@ -171,20 +180,20 @@ async fn resolve_link_card(link: &str) -> Result<LinkCard, anyhow::Error> {
         description: description
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| hostname.clone()),
-        image,
+        og_image,
         favicon,
         href,
     })
 }
 
 impl<'s> LinkCardExtractor<'s> {
-    pub(super) async fn into_resolver(self) -> LinkCardResolver<'s> {
+    pub(super) async fn into_resolver(self) -> LinkCardResolver {
         let tasks = self.links.into_iter().map(|link| async move {
             let card = resolve_link_card(link)
                 .await
                 .inspect_err(|e| warn!(%e, "failed to resolve isolated link"))
                 .ok()?;
-            Some((link, card))
+            Some((link.to_owned(), card))
         });
         LinkCardResolver {
             links: join_all(tasks).await.into_iter().flatten().collect(),
@@ -192,7 +201,7 @@ impl<'s> LinkCardExtractor<'s> {
     }
 }
 
-impl<'s> LinkCardResolver<'s> {
+impl LinkCardResolver {
     pub(super) fn resolve(&self, node: &Node<KeepRaw>) -> Option<&LinkCard> {
         extract_isolated_link(node).and_then(|href| self.links.get(href))
     }

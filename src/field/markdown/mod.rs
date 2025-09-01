@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use valuable::Valuable;
 
-use crate::field::types::{AttrValue, Name};
+use types::{AttrValue, Name};
 
 pub mod compress;
 pub mod parser;
 pub mod resolver;
+pub mod types;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "snake_case")]
@@ -104,7 +105,7 @@ pub struct RichTextDocument<K> {
     pub footnotes: IndexMap<String, Node<K>>,
 }
 
-pub fn text_content<E>(out: &mut String, src: &Vec<Node<E>>) {
+pub fn text_content<E>(out: &mut String, src: &[Node<E>]) {
     for child in src {
         match child {
             Node::Text(t) => out.push_str(t),

@@ -1,60 +1,58 @@
-use url::Url;
+use indexmap::IndexMap;
+use serde::Serialize;
 
 use crate::{
-    config::{self, ImageFormat},
-    field::object_loader::{self, SvgNode},
-    record::CompoundId,
+    config,
+    field::{
+        ColumnValue, CompoundId, FileReference, ImageReference, markdown::compress, object_loader,
+    },
 };
 
-struct ImageVariant {
-    width: u32,
-    height: u32,
-    format: ImageFormat,
-    url: Option<url::Url>,
+pub enum MarkdownStorage {
+    Kv {
+        namespace: String,
+        prefix: Option<String>,
+    },
 }
 
-pub struct ImageLoctaor<'i> {
-    image: &'i object_loader::Image,
-    id: CompoundId,
-    width: Option<u32>,
-    url: Option<url::Url>,
-    image_format: ImageFormat,
-    variants: Vec<ImageVariant>,
-}
-
-trait RasterImageLocator {
-    fn locate_default(&self, width: u32, format: ImageFormat) -> Url;
-    fn locate_variant(&self, width: u32, format: ImageFormat) -> Url;
-}
-
-trait VectorImageLocator {
-    fn locate(&self) -> Url;
-}
-
-trait FileLocator {
-    fn locate(&self) -> Url;
-}
-
-pub struct RasterImage {
-    pub data: image::DynamicImage,
-    pub hash: blake3::Hash,
-    pub origin: object_loader::Origin,
-    pub derived_id: String,
-}
-
-pub struct VectorImage {
-    pub data: SvgNode,
-    pub dimention: (u32, u32),
-    pub hash: blake3::Hash,
-    pub origin: Option<url::Url>,
-    pub derived_id: String,
+#[derive(Serialize)]
+#[serde(tag = "type")]
+pub enum MarkdownReference {
+    Kv { key: String },
 }
 
 pub trait RecordBackend {
-    type Error;
-    fn raster_image_locator(&self, id: &CompoundId, image: &RasterImage)
-    -> impl RasterImageLocator;
-    fn vector_image_locator(&self, id: &CompoundId, image: &VectorImage)
-    -> impl VectorImageLocator;
-    fn file_locator(&self, id: &CompoundId, file: &object_loader::Object) -> impl FileLocator;
+    fn push_row(&self, table: impl Into<String>, row: IndexMap<String, ColumnValue>);
+
+    fn push_markdown(
+        &self,
+        id: &CompoundId,
+        storage: &MarkdownStorage,
+        document: compress::RichTextDocument,
+    ) -> Result<MarkdownReference, crate::ErrorDetail>;
+
+    fn push_markdown_image(
+        &self,
+        table: impl Into<String>,
+        transform: &config::ImageTransform,
+        storage: &config::ImageStorage,
+        image: object_loader::Image,
+    ) -> Result<ImageReference, crate::ErrorDetail>;
+
+    fn push_image(
+        &self,
+        table: impl Into<String>,
+        column: impl Into<String>,
+        transform: &config::ImageTransform,
+        storage: &config::ImageStorage,
+        image: object_loader::Image,
+    ) -> Result<ImageReference, crate::ErrorDetail>;
+
+    fn push_file(
+        &self,
+        table: impl Into<String>,
+        column: impl Into<String>,
+        storage: &config::FileStorage,
+        file: object_loader::Object,
+    ) -> Result<FileReference, crate::ErrorDetail>;
 }

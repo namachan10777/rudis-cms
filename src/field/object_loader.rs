@@ -1,11 +1,16 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use derive_debug::Dbg;
 use image::GenericImageView as _;
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::field::types::{AttrValue, Name};
+use crate::field::markdown::{
+    Node,
+    types::{AttrValue, Name},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -42,9 +47,10 @@ pub struct Object {
     pub derived_id: String,
     pub hash: blake3::Hash,
     pub origin: Origin,
+    pub content_type: String,
 }
 
-async fn load_remote(url: &url::Url) -> Result<Box<[u8]>, Error> {
+async fn load_remote(url: &url::Url) -> Result<(Box<[u8]>, String), Error> {
     let mut response = surf::get(url)
         .send()
         .await
@@ -52,14 +58,20 @@ async fn load_remote(url: &url::Url) -> Result<Box<[u8]>, Error> {
             error,
             url: url.clone(),
         })?;
-    response
+    let body = response
         .body_bytes()
         .await
         .map(|body| body.into_boxed_slice())
         .map_err(|error| Error::FetchRemote {
             error,
             url: url.clone(),
-        })
+        })?;
+    let content_type = response
+        .header("Content-Type")
+        .map(|content_type| content_type.to_string())
+        .unwrap_or("application/octet-stream".into())
+        .to_string();
+    Ok((body, content_type))
 }
 
 fn derive_id_from_path(path: &str) -> String {
@@ -77,12 +89,13 @@ fn derive_id_from_url(url: &str) -> String {
 pub async fn load(src: &str, document_path: Option<&Path>) -> Result<Object, Error> {
     if let Ok(url) = url::Url::parse(src) {
         if matches!(url.scheme(), "https" | "http") {
-            let body = load_remote(&url).await?;
+            let (body, content_type) = load_remote(&url).await?;
             return Ok(Object {
                 hash: blake3::hash(&body),
                 derived_id: derive_id_from_url(src),
                 origin: Origin::Remote(url),
                 body,
+                content_type,
             });
         }
     }
@@ -96,6 +109,7 @@ pub async fn load(src: &str, document_path: Option<&Path>) -> Result<Object, Err
             derived_id: derive_id_from_url(src),
             origin: Origin::DataUrl,
             body: body.into_boxed_slice(),
+            content_type: data.mime_type().to_string(),
         });
     }
 
@@ -117,18 +131,23 @@ pub async fn load(src: &str, document_path: Option<&Path>) -> Result<Object, Err
         PathBuf::from(src)
     };
 
-    let body = smol::fs::read(path)
+    let body = smol::fs::read(&path)
         .await
         .map_err(|error| Error::ReadLocal {
             error,
             path: src.to_owned(),
         })?
         .into_boxed_slice();
+    let content_type = mime_guess::from_path(&path)
+        .first()
+        .map(|mime| mime.to_string())
+        .unwrap_or_else(|| "application/octet-stream".into());
     Ok(Object {
         hash: blake3::hash(&body),
         derived_id: derive_id_from_path(src),
         origin: Origin::Local(src.to_string()),
         body,
+        content_type,
     })
 }
 
@@ -142,6 +161,7 @@ pub enum ImageContent {
         dimensions: (f32, f32),
         #[dbg(skip)]
         tree: SvgNode,
+        size: usize,
     },
 }
 
@@ -161,6 +181,7 @@ pub struct Image {
     pub body: ImageContent,
     pub derived_id: String,
     pub hash: blake3::Hash,
+    pub content_type: String,
     pub origin: Origin,
 }
 
@@ -186,15 +207,32 @@ pub enum ImageLoadError {
 pub enum SvgNode {
     Node {
         name: Name,
-        attrs: IndexMap<Name, AttrValue>,
+        attrs: HashMap<Name, AttrValue>,
         children: Vec<SvgNode>,
     },
-    Text(Box<str>),
+    Text(String),
+}
+
+impl<K> From<SvgNode> for Node<K> {
+    fn from(value: SvgNode) -> Self {
+        match value {
+            SvgNode::Text(text) => Self::Text(text),
+            SvgNode::Node {
+                name,
+                attrs,
+                children,
+            } => Self::Eager {
+                tag: name,
+                attrs,
+                children: children.into_iter().map(Into::into).collect(),
+            },
+        }
+    }
 }
 
 fn build_svg_tree<'a, 'input>(xml: roxmltree::Node<'a, 'input>) -> SvgNode {
     if let Some(text) = xml.text() {
-        SvgNode::Text(text.to_owned().into_boxed_str())
+        SvgNode::Text(text.to_owned())
     } else {
         let name: Name = xml.tag_name().name().to_owned().into();
         let attrs = xml
@@ -225,6 +263,7 @@ pub async fn load_image(src: &str, document_path: Option<&Path>) -> Result<Image
     let object = load(src, document_path)
         .await
         .map_err(ImageLoadError::Load)?;
+    let body_size = object.body.len();
 
     match str::from_utf8(&object.body) {
         Ok(src) => {
@@ -242,26 +281,30 @@ pub async fn load_image(src: &str, document_path: Option<&Path>) -> Result<Image
             let tree = build_svg_tree(tree.root());
             Ok(Image {
                 body: ImageContent::Vector {
+                    size: body_size,
                     dimensions: (size.width(), size.height()),
                     tree,
                 },
+                content_type: "image/svg+xml".to_owned(),
                 derived_id: object.derived_id,
                 hash: object.hash,
                 origin: object.origin,
             })
         }
-        Err(_) => Ok(Image {
-            body: ImageContent::Raster {
-                data: image::load_from_memory(&object.body).map_err(|error| {
-                    ImageLoadError::DecodeRaster {
-                        error,
-                        origin: src.to_string(),
-                    }
-                })?,
-            },
-            derived_id: object.derived_id,
-            hash: object.hash,
-            origin: object.origin,
-        }),
+        Err(_) => {
+            let data = image::load_from_memory(&object.body).map_err(|error| {
+                ImageLoadError::DecodeRaster {
+                    error,
+                    origin: src.to_string(),
+                }
+            })?;
+            Ok(Image {
+                body: ImageContent::Raster { data },
+                derived_id: object.derived_id,
+                hash: object.hash,
+                origin: object.origin,
+                content_type: object.content_type,
+            })
+        }
     }
 }

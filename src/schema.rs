@@ -12,9 +12,9 @@ pub enum Error {
     HashUndefined,
 }
 
-pub(crate) struct Schema {
+pub struct Schema {
     pub(crate) fields: IndexMap<String, FieldType>,
-    pub(crate) external_ids: Vec<String>,
+    pub(crate) compound_id_prefix_names: Vec<String>,
     pub(crate) id_name: String,
     pub(crate) hash_name: Option<String>,
 }
@@ -172,7 +172,7 @@ impl Schema {
                 id_name: id_name.ok_or(Error::IdUndefined)?,
                 hash_name: hash_name,
                 fields,
-                external_ids,
+                compound_id_prefix_names: external_ids,
             }),
         );
         Ok(())

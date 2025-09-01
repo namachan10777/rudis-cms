@@ -184,6 +184,15 @@ impl AsRef<str> for Name {
     }
 }
 
+impl std::fmt::Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Owned(s) => f.write_str(s),
+            Self::Static(s) => f.write_str(s),
+        }
+    }
+}
+
 impl Deref for Name {
     type Target = str;
     fn deref(&self) -> &Self::Target {

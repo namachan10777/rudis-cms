@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-use crate::field::rich_text::{Node, parser::meta_parser::CodeblockMeta};
+use crate::field::markdown::{Node, compress::HeadingLevel, parser::meta_parser::CodeblockMeta};
 
 use super::{AlertKind, AttrValue, Name};
 
@@ -10,12 +10,7 @@ pub(crate) mod meta_parser;
 
 pub struct RichTextDocumentRaw {
     pub(crate) root: Vec<Node<KeepRaw>>,
-    pub(crate) footnotes: IndexMap<String, Node<KeepRaw>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum RichTextLang {
-    Markdown,
+    pub(crate) footnotes: IndexMap<String, Vec<Node<KeepRaw>>>,
 }
 
 #[derive(Clone)]
@@ -30,7 +25,7 @@ pub(crate) enum KeepRaw {
         meta: CodeblockMeta,
     },
     Heading {
-        level: u8,
+        level: HeadingLevel,
         attrs: IndexMap<Name, AttrValue>,
     },
     Image {
@@ -46,10 +41,8 @@ pub(crate) enum KeepRaw {
     },
 }
 
-pub fn parse(src: &str, lang: RichTextLang) -> RichTextDocumentRaw {
-    match lang {
-        RichTextLang::Markdown => markdown::parse(src),
-    }
+pub fn parse(src: &str) -> RichTextDocumentRaw {
+    markdown::parse(src)
 }
 
 impl RichTextDocumentRaw {
@@ -58,11 +51,7 @@ impl RichTextDocumentRaw {
         'a: 'f,
         F: 'f + FnMut(&'a Node<KeepRaw>),
     {
-        for node in &self.root {
-            f(node);
-        }
-        for node in self.footnotes.values() {
-            f(node);
-        }
+        self.root.iter().for_each(|node| f(node));
+        self.footnotes.values().flatten().for_each(|node| f(node));
     }
 }

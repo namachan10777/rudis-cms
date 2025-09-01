@@ -55,7 +55,9 @@ pub enum ImageTransform {
 #[derive(Deserialize, Clone)]
 pub struct MarkdownImageConfig {
     pub transform: ImageTransform,
+    pub table: String,
     pub storage: ImageStorage,
+    pub embed_svg_threshold: usize,
 }
 
 #[derive(Deserialize, Clone)]

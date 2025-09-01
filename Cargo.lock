@@ -3347,6 +3347,8 @@ dependencies = [
  "katex",
  "liquid",
  "maplit",
+ "mime",
+ "mime_guess",
  "num_cpus",
  "pulldown-cmark",
  "regex",
