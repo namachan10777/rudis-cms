@@ -15,10 +15,10 @@ blog:
         table: post_images
         embed_svg_threshold: 8192
         storage:
-          type: r2
+          type: asset
           zone: www.namachan10777.dev
-          bucket: images
-          prefix: post/image
+          local_dir: dist/post/image
+          remote_prefix: post/image
         transform:
           type: matrix
           widths: [480, 720, 1080, 1920]
@@ -31,9 +31,9 @@ blog:
     og_image:
       type: image
       storage:
-        type: r2
+        type: asset
         zone: www.namachan10777.dev
-        bucket: images
+        local_dir: dist/post/og
         prefix: post/og
       transform:
         type: transform

@@ -10,6 +10,10 @@ use tracing::{error, info};
 enum SubCommand {
     Batch,
     ShowSchema,
+    Local {
+        #[clap(short, long)]
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Parser)]
@@ -29,6 +33,21 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 let schema = schema::Schema::tables(&collection)?;
                 println!("Table: {}", name);
                 println!("{}", rudis_cms::sql::render_ddl(schema));
+            }
+            Ok(())
+        }
+        SubCommand::Local { path } => {
+            let config = smol::fs::read_to_string(&opts.config).await?;
+            let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
+            let conn = if let Some(path) = path {
+                rusqlite::Connection::open(path)?
+            } else {
+                rusqlite::Connection::open_in_memory()?
+            };
+            for (_, collection) in &config {
+                let schema = schema::Schema::tables(&collection)?;
+                let ddl = rudis_cms::sql::render_ddl(schema);
+                conn.execute_batch(&ddl)?;
             }
             Ok(())
         }

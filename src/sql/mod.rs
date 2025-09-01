@@ -74,18 +74,22 @@ pub fn render_ddl(schema: schema::TableSchemas) -> String {
     let mut tables = schema
         .iter()
         .map(|(table, schema)| {
-            let columns = schema
-                .fields
-                .iter()
-                .filter_map(|(name, field)| {
-                    let ty = sqlite_type_name(field)?;
-                    Some(liquid::object!({
-                        "name": name,
-                        "type": ty,
-                        "not_null": is_required(field),
-                    }))
+            let inherit_id_columns = schema.inherit_ids.iter().map(|id| {
+                liquid::object!({
+                    "name": id,
+                    "type": "TEXT",
+                    "not_null": true,
                 })
-                .collect::<Vec<_>>();
+            });
+            let columns = schema.fields.iter().filter_map(|(name, field)| {
+                let ty = sqlite_type_name(field)?;
+                Some(liquid::object!({
+                    "name": name,
+                    "type": ty,
+                    "not_null": is_required(field),
+                }))
+            });
+            let columns = inherit_id_columns.chain(columns).collect::<Vec<_>>();
             let indexes = schema
                 .fields
                 .iter()
