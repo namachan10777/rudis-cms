@@ -156,7 +156,7 @@ pub enum Keep {
     FootnoteReference(FootnoteReference),
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Node {
     KeepLazy {
@@ -180,14 +180,14 @@ pub enum Node {
     Text(String),
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Footnote {
     pub id: String,
     pub reference: Option<usize>,
     pub content: Fragment,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Header {
     pub header: String,
     pub level: HeadingLevel,
@@ -195,7 +195,7 @@ pub struct Header {
     pub children: Fragment,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Section {
     pub level: HeadingLevel,
     pub id: String,
@@ -203,7 +203,7 @@ pub struct Section {
     pub content: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct RichTextDocument {
     pub root: Fragment,
     pub footnotes: Vec<Footnote>,
@@ -307,7 +307,7 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "type")]
 pub enum Fragment {
     Html(String),

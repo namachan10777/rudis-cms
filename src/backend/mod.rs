@@ -1,6 +1,8 @@
 use indexmap::IndexMap;
 use serde::Serialize;
 
+pub mod debug;
+
 use crate::{
     config,
     field::{
@@ -8,6 +10,7 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 pub enum MarkdownStorage {
     Kv {
         namespace: String,
@@ -22,10 +25,17 @@ pub enum MarkdownReference {
 }
 
 pub trait RecordBackend {
-    fn push_row(&self, table: impl Into<String>, row: IndexMap<String, ColumnValue>);
+    fn push_row(
+        &self,
+        table: impl Into<String>,
+        id: CompoundId,
+        row: IndexMap<String, ColumnValue>,
+    );
 
     fn push_markdown(
         &self,
+        table: impl Into<String>,
+        column: impl Into<String>,
         id: &CompoundId,
         storage: &MarkdownStorage,
         document: compress::RichTextDocument,
@@ -34,6 +44,8 @@ pub trait RecordBackend {
     fn push_markdown_image(
         &self,
         table: impl Into<String>,
+        column: impl Into<String>,
+        id: &CompoundId,
         transform: &config::ImageTransform,
         storage: &config::ImageStorage,
         image: object_loader::Image,
@@ -43,6 +55,7 @@ pub trait RecordBackend {
         &self,
         table: impl Into<String>,
         column: impl Into<String>,
+        id: &CompoundId,
         transform: &config::ImageTransform,
         storage: &config::ImageStorage,
         image: object_loader::Image,
@@ -52,6 +65,7 @@ pub trait RecordBackend {
         &self,
         table: impl Into<String>,
         column: impl Into<String>,
+        id: &CompoundId,
         storage: &config::FileStorage,
         file: object_loader::Object,
     ) -> Result<FileReference, crate::ErrorDetail>;

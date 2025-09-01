@@ -12,6 +12,7 @@ pub enum Error {
     HashUndefined,
 }
 
+#[derive(Debug)]
 pub struct Schema {
     pub(crate) fields: IndexMap<String, FieldType>,
     pub(crate) compound_id_prefix_names: Vec<String>,
@@ -21,6 +22,7 @@ pub struct Schema {
 
 pub(crate) type TableSchemas = IndexMap<String, Arc<Schema>>;
 
+#[derive(Debug)]
 pub(crate) enum FieldType {
     Id,
     Hash,
@@ -178,7 +180,7 @@ impl Schema {
         Ok(())
     }
 
-    pub(crate) fn tables(config: &config::Collection) -> Result<TableSchemas, Error> {
+    pub fn tables(config: &config::Collection) -> Result<TableSchemas, Error> {
         let mut tables = IndexMap::new();
         Self::add_table(
             &mut tables,

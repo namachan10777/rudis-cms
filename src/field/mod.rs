@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use indexmap::IndexMap;
 use itertools::{EitherOrBoth, Itertools};
 use serde::Serialize;
@@ -36,14 +38,21 @@ impl std::fmt::Debug for CompoundId {
 impl CompoundId {
     pub(crate) fn try_into_prefix(
         self,
-        prefix_names: impl IntoIterator<Item = String>,
+        prefix_names: impl Debug + IntoIterator<Item = String>,
     ) -> Result<CompoundIdPrefix, crate::ErrorDetail> {
         let Self { id, name, prefix } = self;
         let prefix = prefix_names
             .into_iter()
-            .zip_longest(prefix.0.into_iter().chain(std::iter::once((name, id))))
+            .chain(std::iter::once(name))
+            .zip_longest(
+                prefix
+                    .0
+                    .into_iter()
+                    .map(|(_, id)| id)
+                    .chain(std::iter::once(id)),
+            )
             .map(|pair| match pair {
-                EitherOrBoth::Both(name, (_, value)) => Ok((name, value)),
+                EitherOrBoth::Both(name, value) => Ok((name, value)),
                 EitherOrBoth::Left(_) | EitherOrBoth::Right(_) => {
                     Err(crate::ErrorDetail::InvalidParentIdNames)
                 }
@@ -77,7 +86,7 @@ impl CompoundIdPrefix {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct ImageVariantLocation {
     pub url: url::Url,
     pub width: u32,
@@ -85,7 +94,7 @@ pub struct ImageVariantLocation {
     pub content_type: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct ImageReference {
     pub url: url::Url,
     pub width: u32,
@@ -96,7 +105,7 @@ pub struct ImageReference {
     pub variants: Vec<ImageVariantLocation>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct FileReference {
     pub url: url::Url,
     pub size: u64,
@@ -104,14 +113,14 @@ pub struct FileReference {
     pub hash: blake3::Hash,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "type")]
 pub enum MarkdownReference {
     Inline { content: compress::RichTextDocument },
     Kv { key: String },
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub enum ColumnValue {
     Null,
     String(String),

@@ -322,8 +322,7 @@ async fn process_records_field_impl<'source, R: RecordBackend + Sync + Send>(
             serde_json::Value::String(id) => {
                 if ctx.current_schema().is_id_only_table() {
                     let id = ctx.id(id);
-                    let row = Row::default().with_compount_id(&id);
-                    ctx.backend.push_row(table, row.fields);
+                    ctx.backend.push_row(table, id, Default::default());
                     Ok(())
                 } else {
                     bail!(
@@ -372,6 +371,7 @@ async fn process_records_field<'source, R: RecordBackend + Sync + Send>(
 }
 async fn process_image_field_impl<'source, R: RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
+    id: &CompoundId,
     name: &str,
     transform: &config::ImageTransform,
     storage: &config::ImageStorage,
@@ -383,20 +383,21 @@ async fn process_image_field_impl<'source, R: RecordBackend + Sync + Send>(
         .map_err(|error| ctx.error.error(error))?;
     let value = ctx
         .backend
-        .push_image(&ctx.table, name, transform, storage, image)
+        .push_image(&ctx.table, name, id, transform, storage, image)
         .map_err(|detail| ctx.error.error(detail))?;
     Ok(ColumnValue::Image(value))
 }
 
 async fn process_image_field<'source, R: RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
+    id: &CompoundId,
     name: &str,
     transform: &config::ImageTransform,
     storage: &config::ImageStorage,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(src) = value {
-        process_image_field_impl(ctx, name, transform, storage, &src).await
+        process_image_field_impl(ctx, id, name, transform, storage, &src).await
     } else {
         bail!(
             ctx.error,
@@ -411,6 +412,7 @@ async fn process_image_field<'source, R: RecordBackend + Sync + Send>(
 async fn process_file_field_impl<'source, R: RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
+    id: &CompoundId,
     storage: &config::FileStorage,
     src: &str,
 ) -> Result<ColumnValue, Error> {
@@ -420,7 +422,7 @@ async fn process_file_field_impl<'source, R: RecordBackend + Send + Sync>(
         .map_err(|error| ctx.error.error(error))?;
     let value = ctx
         .backend
-        .push_file(&ctx.table, name, storage, image)
+        .push_file(&ctx.table, name, id, storage, image)
         .map_err(|detail| ctx.error.error(detail))?;
     Ok(ColumnValue::File(value))
 }
@@ -428,11 +430,12 @@ async fn process_file_field_impl<'source, R: RecordBackend + Send + Sync>(
 async fn process_file_field<'source, R: RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
+    id: &CompoundId,
     storage: &config::FileStorage,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(src) = value {
-        process_file_field_impl(ctx, name, storage, &src).await
+        process_file_field_impl(ctx, name, id, storage, &src).await
     } else {
         bail!(
             ctx.error,
@@ -446,6 +449,7 @@ async fn process_file_field<'source, R: RecordBackend + Send + Sync>(
 
 async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
+    name: &str,
     id: &CompoundId,
     storage: &config::MarkdownStorage,
     _: &config::MarkdownConfig,
@@ -458,6 +462,8 @@ async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
         Some(&ctx.document_path),
         ctx.backend,
         &ctx.table,
+        name,
+        id,
         &image.transform,
         &image.storage,
         image.embed_svg_threshold,
@@ -473,6 +479,8 @@ async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
             match ctx
                 .backend
                 .push_markdown(
+                    &ctx.table,
+                    name,
                     id,
                     &backend::MarkdownStorage::Kv {
                         namespace: namespace.clone(),
@@ -492,6 +500,7 @@ async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
 
 async fn process_markdown_field<'source, R: RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
+    name: &str,
     id: &CompoundId,
     storage: &config::MarkdownStorage,
     config: &config::MarkdownConfig,
@@ -499,7 +508,7 @@ async fn process_markdown_field<'source, R: RecordBackend + Send + Sync>(
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(src) = value {
-        process_markdown_field_impl(ctx, id, storage, config, image, &src).await
+        process_markdown_field_impl(ctx, name, id, storage, config, image, &src).await
     } else {
         bail!(
             ctx.error,
@@ -521,6 +530,9 @@ async fn process_field<'source, R: RecordBackend + Sync + Send>(
     let value = match value {
         Some(value) => value,
         None => {
+            if matches!(def, schema::FieldType::Id | schema::FieldType::Hash) {
+                return Ok(None);
+            }
             if is_normal_required_field(def) {
                 bail!(&ctx.error, ErrorDetail::MissingField(name.to_owned()));
             } else {
@@ -539,18 +551,20 @@ async fn process_field<'source, R: RecordBackend + Sync + Send>(
         schema::FieldType::Datetime { .. } => process_datetime_field(ctx, value).map(Some),
         schema::FieldType::Image {
             transform, storage, ..
-        } => process_image_field(ctx, name, transform, storage, value)
+        } => process_image_field(ctx, id, name, transform, storage, value)
             .await
             .map(Some),
-        schema::FieldType::File { storage, .. } => process_file_field(ctx, name, storage, value)
-            .await
-            .map(Some),
+        schema::FieldType::File { storage, .. } => {
+            process_file_field(ctx, name, id, storage, value)
+                .await
+                .map(Some)
+        }
         schema::FieldType::Markdown {
             image,
             config,
             storage,
             ..
-        } => process_markdown_field(ctx, id, storage, config, image, value)
+        } => process_markdown_field(ctx, name, id, storage, config, image, value)
             .await
             .map(Some),
         schema::FieldType::Records { table, .. } => {
@@ -576,14 +590,11 @@ async fn push_rows_impl<'source, R: RecordBackend + Sync + Send>(
 
     let mut row = IndexMap::new();
     for (name, def) in &schema.fields {
-        row.insert(
-            name.clone(),
-            process_field(&ctx, &id, name, def, fields.remove(name))
-                .await?
-                .unwrap_or(ColumnValue::Null),
-        );
+        if let Some(value) = process_field(&ctx, &id, name, def, fields.remove(name)).await? {
+            row.insert(name.clone(), value);
+        }
     }
-    ctx.backend.push_row(&ctx.table, row);
+    ctx.backend.push_row(&ctx.table, id, row);
     Ok(())
 }
 fn push_rows<'source, 'c, R: RecordBackend + Sync + Send>(

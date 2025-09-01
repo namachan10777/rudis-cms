@@ -1,4 +1,6 @@
 blog:
+  glob: "**/*.md"
+  table: posts
   syntax:
     type: markdown
     column: body
@@ -7,8 +9,29 @@ blog:
       type: id
     hash:
       type: hash
+    body:
+      type: markdown
+      image:
+        table: post_images
+        embed_svg_threshold: 8192
+        storage:
+          type: r2
+          zone: www.namachan10777.dev
+          bucket: images
+          prefix: post
+        transform:
+          type: matrix
+          widths: [480, 720, 1080, 1920]
+          formats: [avif]
+          default_format: png
+      config: {}
+      storage:
+        type: kv
+        namespace: kv
     tags:
       type: records
+      parent_id_names: [post_id]
+      table: post_tags
       schema:
         tag:
           type: id

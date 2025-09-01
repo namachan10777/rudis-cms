@@ -8,7 +8,7 @@ use crate::{
     backend::RecordBackend,
     config,
     field::{
-        ImageReference,
+        CompoundId, ImageReference,
         markdown::{Node, parser::KeepRaw},
         object_loader::{self, ImageContent, SvgNode},
     },
@@ -47,10 +47,7 @@ pub struct Config<'a> {
 }
 
 pub(super) enum ImageResolved {
-    EmbedSvg {
-        dimensions: (f32, f32),
-        tree: SvgNode,
-    },
+    EmbedSvg { tree: SvgNode },
     Reference(ImageReference),
 }
 
@@ -60,6 +57,8 @@ impl<'a> ImageSrcExtractor<'a> {
         document_path: Option<&Path>,
         backend: &'a R,
         table: &str,
+        column: &str,
+        id: &CompoundId,
         config: Config<'a>,
     ) -> Result<ImageResolver, ErrorDetail> {
         let tasks = self.src_set.into_iter().map(|src| async move {
@@ -69,19 +68,16 @@ impl<'a> ImageSrcExtractor<'a> {
 
             match image {
                 object_loader::Image {
-                    body:
-                        ImageContent::Vector {
-                            dimensions,
-                            tree,
-                            size,
-                        },
+                    body: ImageContent::Vector { tree, size, .. },
                     ..
                 } if size < config.embed_svg_threshold => {
-                    Ok((src.to_owned(), ImageResolved::EmbedSvg { dimensions, tree }))
+                    Ok((src.to_owned(), ImageResolved::EmbedSvg { tree }))
                 }
                 image => {
                     let image = backend.push_markdown_image(
                         table,
+                        column,
+                        id,
                         config.transform,
                         config.storage,
                         image,

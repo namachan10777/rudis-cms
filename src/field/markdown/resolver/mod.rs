@@ -5,13 +5,16 @@ use maplit::hashmap;
 use crate::{
     backend::RecordBackend,
     config,
-    field::markdown::{
-        Node,
-        compress::{self, Codeblock, FootnoteReference, Heading, Image, Keep},
-        parser::{KeepRaw, RichTextDocumentRaw},
-        raw_to_expanded,
-        resolver::image::ImageResolved,
-        text_content,
+    field::{
+        CompoundId,
+        markdown::{
+            Node,
+            compress::{self, Codeblock, FootnoteReference, Heading, Image, Keep},
+            parser::{KeepRaw, RichTextDocumentRaw},
+            raw_to_expanded,
+            resolver::image::ImageResolved,
+            text_content,
+        },
     },
 };
 
@@ -228,6 +231,8 @@ impl RichTextDocument {
         document_path: Option<&Path>,
         backend: &R,
         table: &str,
+        column: &str,
+        id: &CompoundId,
         transform: &config::ImageTransform,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,
@@ -247,7 +252,7 @@ impl RichTextDocument {
         };
 
         let image_resolver = image_extractor
-            .into_resolver(document_path, backend, table, config)
+            .into_resolver(document_path, backend, table, column, id, config)
             .await?;
         let link_card_resolver = link_card_extractor.into_resolver().await;
         let resolvers = Resolvers {

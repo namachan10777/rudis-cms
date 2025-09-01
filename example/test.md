@@ -1,6 +1,6 @@
 ---
 id: test
-tags: []
+tags: [tech]
 ---
 
 ## This is test page

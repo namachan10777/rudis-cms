@@ -3,7 +3,8 @@ use std::{collections::HashSet, path::PathBuf};
 use indexmap::IndexMap;
 use serde::Deserialize;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageStorage {
     R2 {
         zone: String,
@@ -17,7 +18,7 @@ pub enum ImageStorage {
     },
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub enum FileStorage {
     R2 {
         zone: Option<String>,
@@ -31,7 +32,8 @@ pub enum FileStorage {
     },
 }
 
-#[derive(Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum ImageFormat {
     Jpeg,
     Png,
@@ -39,7 +41,8 @@ pub enum ImageFormat {
     Avif,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageTransform {
     Transform {
         width: u32,
@@ -52,7 +55,7 @@ pub enum ImageTransform {
     },
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownImageConfig {
     pub transform: ImageTransform,
     pub table: String,
@@ -60,10 +63,11 @@ pub struct MarkdownImageConfig {
     pub embed_svg_threshold: usize,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownConfig {}
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MarkdownStorage {
     Inline,
     Kv {
@@ -72,8 +76,8 @@ pub enum MarkdownStorage {
     },
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "type")]
+#[derive(Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Field {
     Id,
     Hash,
@@ -146,7 +150,8 @@ pub enum Field {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum DocumentSyntax {
     Yaml,
     Toml,
