@@ -1,13 +1,10 @@
-use indexmap::IndexMap;
 use serde::Serialize;
 
 pub mod debug;
 
 use crate::{
     config,
-    field::{
-        ColumnValue, CompoundId, FileReference, ImageReference, markdown::compress, object_loader,
-    },
+    field::{self, CompoundId, FileReference, ImageReference, markdown::compress, object_loader},
 };
 
 #[derive(Debug)]
@@ -24,14 +21,15 @@ pub enum MarkdownReference {
     Kv { key: String },
 }
 
-pub trait RecordBackend {
-    fn push_row(
-        &self,
-        table: impl Into<String>,
-        id: CompoundId,
-        row: IndexMap<String, ColumnValue>,
-    );
+impl From<MarkdownReference> for field::MarkdownReference {
+    fn from(value: MarkdownReference) -> Self {
+        match value {
+            MarkdownReference::Kv { key } => Self::Kv { key },
+        }
+    }
+}
 
+pub trait RecordBackend {
     fn push_markdown(
         &self,
         table: impl Into<String>,
@@ -39,6 +37,7 @@ pub trait RecordBackend {
         id: &CompoundId,
         storage: &MarkdownStorage,
         document: compress::RichTextDocument,
+        frontmatter: serde_json::Value,
     ) -> Result<MarkdownReference, crate::ErrorDetail>;
 
     fn push_markdown_image(

@@ -2,7 +2,6 @@ use crate::field::markdown::types::{AttrValue, Name};
 use std::str::FromStr;
 
 use indexmap::IndexMap;
-use valuable::Valuable;
 use winnow::{
     Parser as _,
     ascii::space0,

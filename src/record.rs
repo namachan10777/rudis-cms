@@ -1,18 +1,21 @@
 use std::{
-    hash::Hash,
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, LazyLock},
 };
 
 use futures::future::try_join_all;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, indexmap};
+use serde::{
+    Serialize,
+    ser::{SerializeMap as _, SerializeSeq, SerializeTuple},
+};
 
 use crate::{
     Error, ErrorContext, ErrorDetail, backend,
     config::{self, DocumentSyntax},
     field::{
-        ColumnValue, CompoundId, CompoundIdPrefix,
+        self, ColumnValue, CompoundId, CompoundIdPrefix,
         markdown::{self, compress},
         object_loader,
     },
@@ -101,15 +104,29 @@ fn is_normal_required_field(def: &schema::FieldType) -> bool {
     }
 }
 
-struct Row {
+struct RowNode {
     id: CompoundId,
-    fields: IndexMap<String, FieldValue>,
+    fields: IndexMap<String, ColumnValue>,
+    records: IndexMap<String, Records>,
     hash: blake3::Hash,
 }
 
 struct Records {
     table: String,
-    rows: Vec<Row>,
+    rows: Vec<RowNode>,
+}
+
+impl Serialize for Records {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut serializer = serializer.serialize_seq(Some(self.rows.len()))?;
+        for row in &self.rows {
+            serializer.serialize_element(&row.fields)?;
+        }
+        serializer.end()
+    }
 }
 
 enum FieldValue {
@@ -119,6 +136,25 @@ enum FieldValue {
         storage: config::MarkdownStorage,
     },
     Records(Records),
+}
+
+impl Serialize for FieldValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Column(column) => column.serialize(serializer),
+            Self::Records(records) => {
+                let mut serializer = serializer.serialize_tuple(records.rows.len())?;
+                for row in &records.rows {
+                    serializer.serialize_element(&row.fields)?;
+                }
+                serializer.end()
+            }
+            Self::Markdown { .. } => unreachable!("Markdown cannot serialize"),
+        }
+    }
 }
 
 struct RecordContext<'c, R> {
@@ -151,7 +187,8 @@ impl<'source, R> RecordContext<'source, R> {
     }
 
     fn nest(self, table: impl Into<String>, id: CompoundId) -> Result<Self, crate::Error> {
-        let compound_id_prefix_names = self.current_schema().compound_id_prefix_names.clone();
+        let table = table.into();
+        let inherit_ids = self.schema.get(&table).unwrap().inherit_ids.clone();
         let Self {
             schema,
             error,
@@ -160,7 +197,7 @@ impl<'source, R> RecordContext<'source, R> {
             ..
         } = self;
         let compound_id_prefix = id
-            .try_into_prefix(compound_id_prefix_names)
+            .try_into_prefix(inherit_ids)
             .map_err(|detail| error.error(detail))?;
         Ok(Self {
             table: table.into(),
@@ -327,7 +364,7 @@ async fn process_records_field<'source, R: backend::RecordBackend + Sync + Send>
     id: &CompoundId,
     table: &str,
     value: serde_json::Value,
-) -> Result<Vec<Row>, Error> {
+) -> Result<Vec<RowNode>, Error> {
     let serde_json::Value::Array(records) = value else {
         bail!(
             ctx.error,
@@ -342,14 +379,15 @@ async fn process_records_field<'source, R: backend::RecordBackend + Sync + Send>
         match record {
             serde_json::Value::String(id) => {
                 if ctx.current_schema().is_id_only_table() {
+                    let fields = indexmap! {
+                        ctx.current_schema().id_name.clone() => ColumnValue::Id(id.clone()),
+                    };
                     let id = ctx.id(id);
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(b"id");
-                    hasher.update(id.to_string().as_bytes());
-                    Ok(Row {
+                    Ok(RowNode {
                         id,
-                        hash: hasher.finalize(),
-                        fields: Default::default(),
+                        hash: ctx.hasher.finalize(),
+                        fields,
+                        records: Default::default(),
                     })
                 } else {
                     bail!(
@@ -551,13 +589,35 @@ async fn process_field<'source, R: backend::RecordBackend + Sync + Send>(
     Ok(Some(value))
 }
 
+struct Frontmatter<'a> {
+    fields: &'a IndexMap<String, ColumnValue>,
+    records: &'a IndexMap<String, Records>,
+}
+
+impl<'a> Serialize for Frontmatter<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut serializer =
+            serializer.serialize_map(Some(self.fields.len() + self.records.len()))?;
+        for (name, value) in self.fields {
+            serializer.serialize_entry(name, value)?;
+        }
+        for (name, records) in self.records {
+            serializer.serialize_entry(name, records)?;
+        }
+        serializer.end()
+    }
+}
+
 async fn process_row_impl<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
-    mut fields: serde_json::Map<String, serde_json::Value>,
-) -> Result<Row, Error> {
+    mut raw_fields: serde_json::Map<String, serde_json::Value>,
+) -> Result<RowNode, Error> {
     let schema = ctx.current_schema();
-    let id =
-        extract_id_value(&schema.id_name, &mut fields).map_err(|detail| ctx.error.error(detail))?;
+    let id = extract_id_value(&schema.id_name, &mut raw_fields)
+        .map_err(|detail| ctx.error.error(detail))?;
     let id = ctx.id(id);
 
     let ctx = RecordContext {
@@ -567,37 +627,109 @@ async fn process_row_impl<'source, R: backend::RecordBackend + Sync + Send>(
 
     let mut hasher = ctx.hasher.clone();
 
-    let mut row = IndexMap::new();
+    let mut fields = IndexMap::new();
 
     for (name, id) in id.pairs() {
-        row.insert(name.into(), FieldValue::Column(ColumnValue::Id(id.into())));
+        fields.insert(name.into(), ColumnValue::Id(id.into()));
     }
 
+    let mut records = IndexMap::new();
+    let mut markdowns = IndexMap::new();
+
     for (name, def) in &schema.fields {
-        let value = process_field(&ctx, &mut hasher, &id, name, def, fields.remove(name)).await?;
-        if let Some(value) = value {
-            row.insert(name.clone(), value);
+        match process_field(&ctx, &mut hasher, &id, name, def, raw_fields.remove(name)).await? {
+            Some(FieldValue::Column(value)) => {
+                fields.insert(name.clone(), value);
+            }
+            Some(FieldValue::Records(value)) => {
+                records.insert(name.clone(), value);
+            }
+            Some(FieldValue::Markdown {
+                document,
+                storage: config::MarkdownStorage::Inline,
+            }) => {
+                fields.insert(
+                    name.clone(),
+                    ColumnValue::Markdown(field::MarkdownReference::Inline {
+                        content: serde_json::to_value(&document).unwrap(),
+                    }),
+                );
+            }
+            Some(FieldValue::Markdown {
+                document,
+                storage: config::MarkdownStorage::Kv { namespace, prefix },
+            }) => {
+                markdowns.insert(
+                    name.clone(),
+                    (document, backend::MarkdownStorage::Kv { namespace, prefix }),
+                );
+            }
+            None => {}
         }
     }
     let hash = hasher.finalize();
     if let Some(hash_name) = &schema.hash_name {
-        row.insert(
-            hash_name.clone(),
-            FieldValue::Column(ColumnValue::Hash(hash)),
-        );
+        fields.insert(hash_name.clone(), ColumnValue::Hash(hash));
     }
-    Ok(Row {
+
+    let frontmatter = Frontmatter {
+        fields: &fields,
+        records: &records,
+    };
+    let frontmatter = serde_json::to_value(&frontmatter).unwrap();
+    for (name, (document, storage)) in markdowns {
+        let reference = ctx
+            .backend
+            .push_markdown(
+                ctx.table.clone(),
+                name.clone(),
+                &id,
+                &storage,
+                document,
+                frontmatter.clone(),
+            )
+            .map_err(|detail| ctx.error.error(detail))?;
+        fields.insert(name, ColumnValue::Markdown(reference.into()));
+    }
+    Ok(RowNode {
         id,
-        fields: row,
+        fields,
         hash: hasher.finalize(),
+        records,
     })
 }
 
 fn process_row<'source, 'c, R: backend::RecordBackend + Sync + Send>(
     ctx: &'c RecordContext<'source, R>,
     fields: serde_json::Map<String, serde_json::Value>,
-) -> Pin<Box<dyn 'c + Future<Output = Result<Row, Error>>>> {
+) -> Pin<Box<dyn 'c + Future<Output = Result<RowNode, Error>>>> {
     Box::pin(process_row_impl(ctx, fields))
+}
+
+pub type Tables = IndexMap<String, Vec<IndexMap<String, ColumnValue>>>;
+
+fn tree_to_flat_tables(
+    schema: &schema::TableSchemas,
+    tables: &mut Tables,
+    table: String,
+    row: RowNode,
+) {
+    let mut fields = row.fields;
+    for (name, id) in row.id.pairs() {
+        fields.insert(name.into(), ColumnValue::Id(id.into()));
+    }
+    if let Some(hash_name) = schema
+        .get(&table)
+        .and_then(|table| table.hash_name.as_ref())
+    {
+        fields.insert(hash_name.clone(), ColumnValue::Hash(row.hash));
+    }
+    tables.entry(table).or_default().push(fields);
+    for (_, record) in row.records {
+        record.rows.into_iter().for_each(|row| {
+            tree_to_flat_tables(schema, tables, record.table.clone(), row);
+        });
+    }
 }
 
 pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend + Sync + Send>(
@@ -607,7 +739,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend +
     syntax: &DocumentSyntax,
     backend: &R,
     path: P,
-) -> Result<(), Error> {
+) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());
     let document = smol::fs::read_to_string(&path)
         .await
@@ -625,6 +757,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend +
             frontmatter
         }
     };
+
     let ctx = RecordContext {
         hasher,
         table: table.to_owned(),
@@ -634,7 +767,14 @@ pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend +
         document_path: path.as_ref().to_owned(),
         backend,
     };
-    let row = process_row(&ctx, fields).await?;
 
-    Ok(())
+    let mut tables = IndexMap::new();
+    tree_to_flat_tables(
+        schema,
+        &mut tables,
+        table.into(),
+        process_row(&ctx, fields).await?,
+    );
+
+    Ok(tables)
 }

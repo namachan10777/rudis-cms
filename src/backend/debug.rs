@@ -60,10 +60,18 @@ impl super::RecordBackend for DebugBackend {
         id: &crate::field::CompoundId,
         storage: &super::MarkdownStorage,
         document: crate::field::markdown::compress::RichTextDocument,
+        frontmatter: serde_json::Value,
     ) -> Result<super::MarkdownReference, crate::ErrorDetail> {
         let table = table.into();
         let column = column.into();
-        info!(table, column, ?storage, ?document, "push markdown");
+        info!(
+            table,
+            column,
+            ?storage,
+            ?document,
+            ?frontmatter,
+            "push markdown"
+        );
         Ok(super::MarkdownReference::Kv {
             key: id.to_string(),
         })
@@ -100,15 +108,5 @@ impl super::RecordBackend for DebugBackend {
             hash: image.hash,
             variants: Default::default(),
         })
-    }
-
-    fn push_row(
-        &self,
-        table: impl Into<String>,
-        id: CompoundId,
-        row: indexmap::IndexMap<String, crate::field::ColumnValue>,
-    ) {
-        let table = table.into();
-        info!(table, %id, ?row, "push row");
     }
 }

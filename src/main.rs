@@ -39,7 +39,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 let schema = schema::Schema::tables(&collection)?;
                 let backend = backend::debug::DebugBackend::default();
                 for path in glob::glob(&collection.glob)? {
-                    record::push_rows_from_document(
+                    let tables = record::push_rows_from_document(
                         &collection.table,
                         hasher.clone(),
                         &schema,
@@ -48,6 +48,11 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                         path?,
                     )
                     .await?;
+                    for (table, rows) in &tables {
+                        for row in rows {
+                            info!(table, ?row, "row");
+                        }
+                    }
                 }
             }
             Ok(())

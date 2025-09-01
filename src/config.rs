@@ -137,7 +137,7 @@ pub enum Field {
         index: bool,
         #[serde(default)]
         required: bool,
-        parent_id_names: Vec<String>,
+        inherit_ids: Vec<String>,
         schema: IndexMap<String, Field>,
         table: String,
     },

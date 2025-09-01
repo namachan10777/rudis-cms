@@ -30,7 +30,7 @@ blog:
         namespace: kv
     tags:
       type: records
-      parent_id_names: [post_id]
+      inherit_ids: [post_id]
       table: post_tags
       schema:
         tag:

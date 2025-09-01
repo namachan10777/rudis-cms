@@ -1,16 +1,13 @@
-use std::{collections::BinaryHeap, fmt::Debug, ptr::hash};
+use std::fmt::Debug;
 
-use indexmap::IndexMap;
 use itertools::{EitherOrBoth, Itertools};
 use serde::Serialize;
-
-use crate::field::markdown::compress::{self};
 
 pub mod config;
 pub mod markdown;
 pub mod object_loader;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct CompoundIdPrefix(Vec<(String, String)>);
 
 #[derive(Clone)]
@@ -40,10 +37,9 @@ impl CompoundId {
         self,
         prefix_names: impl Debug + IntoIterator<Item = String>,
     ) -> Result<CompoundIdPrefix, crate::ErrorDetail> {
-        let Self { id, name, prefix } = self;
+        let Self { id, prefix, .. } = self;
         let prefix = prefix_names
             .into_iter()
-            .chain(std::iter::once(name))
             .zip_longest(
                 prefix
                     .0
@@ -114,7 +110,7 @@ pub enum MarkdownReference {
     Kv { key: String },
 }
 
-#[derive(Serialize, Debug, Hash)]
+#[derive(Debug, Hash)]
 pub enum ColumnValue {
     Id(String),
     Hash(blake3::Hash),
@@ -129,6 +125,29 @@ pub enum ColumnValue {
     Image(ImageReference),
     File(FileReference),
     Markdown(MarkdownReference),
+}
+
+impl Serialize for ColumnValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Id(id) => serializer.serialize_str(id.as_str()),
+            Self::Hash(hash) => serializer.serialize_str(&hash.to_string()),
+            Self::Null => serializer.serialize_unit(),
+            Self::String(s) => serializer.serialize_str(s),
+            Self::Number(n) => n.serialize(serializer),
+            Self::Boolean(b) => serializer.serialize_bool(*b),
+            Self::Object(obj) => obj.serialize(serializer),
+            Self::Date(date) => date.serialize(serializer),
+            Self::Datetime(datetime) => datetime.serialize(serializer),
+            Self::Array(arr) => arr.serialize(serializer),
+            Self::Image(image) => image.serialize(serializer),
+            Self::File(file) => file.serialize(serializer),
+            Self::Markdown(markdown) => markdown.serialize(serializer),
+        }
+    }
 }
 
 impl From<serde_json::Value> for ColumnValue {

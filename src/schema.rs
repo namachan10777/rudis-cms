@@ -15,7 +15,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Schema {
     pub(crate) fields: IndexMap<String, FieldType>,
-    pub(crate) compound_id_prefix_names: Vec<String>,
+    pub(crate) inherit_ids: Vec<String>,
     pub(crate) id_name: String,
     pub(crate) hash_name: Option<String>,
 }
@@ -79,7 +79,7 @@ impl Schema {
     fn add_table(
         tables: &mut IndexMap<String, Arc<Self>>,
         schema: &IndexMap<String, config::Field>,
-        external_ids: Vec<String>,
+        inherit_ids: Vec<String>,
         table: String,
     ) -> Result<(), Error> {
         let mut id_name = None;
@@ -153,12 +153,12 @@ impl Schema {
                     },
                     config::Field::Records {
                         required,
-                        parent_id_names,
+                        inherit_ids,
                         schema,
                         table,
                         ..
                     } => {
-                        Self::add_table(tables, schema, parent_id_names.clone(), table.clone())?;
+                        Self::add_table(tables, schema, inherit_ids.clone(), table.clone())?;
                         FieldType::Records {
                             table: table.clone(),
                             required: *required,
@@ -174,7 +174,7 @@ impl Schema {
                 id_name: id_name.ok_or(Error::IdUndefined)?,
                 hash_name: hash_name,
                 fields,
-                compound_id_prefix_names: external_ids,
+                inherit_ids,
             }),
         );
         Ok(())
