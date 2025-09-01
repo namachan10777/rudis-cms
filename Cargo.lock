@@ -385,17 +385,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-recursion"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.104",
-]
-
-[[package]]
 name = "async-signal"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3323,56 +3312,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 
 [[package]]
-name = "nothing-cms"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel 2.5.0",
- "async-recursion",
- "aws-config",
- "aws-sdk-s3",
- "blake3",
- "blocking",
- "blurhash",
- "chrono",
- "clap",
- "data-url",
- "derive-debug",
- "futures",
- "glob",
- "html_parser",
- "image",
- "indexmap",
- "itertools 0.14.0",
- "katex",
- "liquid",
- "maplit",
- "mime",
- "mime_guess",
- "num_cpus",
- "pulldown-cmark",
- "regex",
- "roxmltree",
- "rusqlite",
- "scraper",
- "serde",
- "serde_json",
- "serde_yaml",
- "smol",
- "surf",
- "syntect",
- "thiserror 2.0.12",
- "toml 0.9.5",
- "tracing",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "usvg",
- "valuable",
- "winnow",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4217,6 +4156,55 @@ name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
+name = "rudis-cms"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel 2.5.0",
+ "aws-config",
+ "aws-sdk-s3",
+ "blake3",
+ "blocking",
+ "blurhash",
+ "chrono",
+ "clap",
+ "data-url",
+ "derive-debug",
+ "futures",
+ "glob",
+ "html_parser",
+ "image",
+ "indexmap",
+ "itertools 0.14.0",
+ "katex",
+ "liquid",
+ "maplit",
+ "mime",
+ "mime_guess",
+ "num_cpus",
+ "pulldown-cmark",
+ "regex",
+ "roxmltree",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "smol",
+ "surf",
+ "syntect",
+ "thiserror 2.0.12",
+ "toml 0.9.5",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "usvg",
+ "valuable",
+ "winnow",
+]
 
 [[package]]
 name = "rusqlite"

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 use indexmap::IndexMap;
-use nothing_cms::{backend, config, record, schema};
+use rudis_cms::{backend, config, record, schema};
 use tracing::{error, info};
 
 #[derive(clap::Subcommand)]
