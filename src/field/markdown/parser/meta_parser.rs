@@ -1,6 +1,7 @@
 use crate::field::markdown::types::{AttrValue, Name};
-use std::{collections::HashMap, str::FromStr};
+use std::str::FromStr;
 
+use indexmap::IndexMap;
 use valuable::Valuable;
 use winnow::{
     Parser as _,
@@ -13,10 +14,10 @@ use winnow::{
 #[error("failed to parse codeblock meta {0}")]
 pub struct Error(String);
 
-#[derive(Debug, Clone, Valuable, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CodeblockMeta {
     pub lang: Option<String>,
-    pub attrs: HashMap<Name, AttrValue>,
+    pub attrs: IndexMap<Name, AttrValue>,
 }
 
 type ParseResult<T> = Result<T, winnow::error::ErrMode<winnow::error::ContextError>>;
@@ -142,11 +143,11 @@ fn attribute(input: &mut &str) -> ParseResult<(String, AttrValue)> {
     alt((attribute_with_value, attribute_flag)).parse_next(input)
 }
 
-fn attributes_block(input: &mut &str) -> ParseResult<HashMap<Name, AttrValue>> {
+fn attributes_block(input: &mut &str) -> ParseResult<IndexMap<Name, AttrValue>> {
     let _: char = '{'.parse_next(input)?;
     space0.parse_next(input)?;
 
-    let mut attrs = HashMap::new();
+    let mut attrs = IndexMap::new();
 
     while !input.starts_with('}') && !input.is_empty() {
         let (key, value) = attribute.parse_next(input)?;

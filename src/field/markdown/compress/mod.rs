@@ -1,5 +1,6 @@
-use std::{collections::HashMap, fmt::Write};
+use std::fmt::Write;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::field::markdown::{
@@ -169,12 +170,12 @@ pub enum Node {
     },
     Lazy {
         tag: Name,
-        attrs: HashMap<Name, AttrValue>,
+        attrs: IndexMap<Name, AttrValue>,
         children: Vec<Node>,
     },
     Eager {
         tag: Name,
-        attrs: HashMap<Name, AttrValue>,
+        attrs: IndexMap<Name, AttrValue>,
         content: String,
     },
     Text(String),
@@ -218,7 +219,7 @@ type ResolverNode = super::Node<Keep>;
 
 fn write_attrs<W: std::fmt::Write>(
     out: &mut W,
-    attrs: &HashMap<Name, AttrValue>,
+    attrs: &IndexMap<Name, AttrValue>,
 ) -> std::fmt::Result {
     for (name, value) in attrs {
         match value {

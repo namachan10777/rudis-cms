@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
-use indexmap::IndexMap;
-use maplit::hashmap;
+use indexmap::{IndexMap, indexmap};
 use pulldown_cmark::{
     Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd,
 };
@@ -202,7 +201,7 @@ fn fix_thead(thead: Node<KeepRaw>) -> Node<KeepRaw> {
         attrs,
         children: vec![Node::Eager {
             tag: "tr".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }],
     }
@@ -217,12 +216,12 @@ fn construct_table(aligns: &[Alignment], mut children: Vec<Node<KeepRaw>>) -> No
 
     Node::Eager {
         tag: "table".into(),
-        attrs: hashmap! {},
+        attrs: Default::default(),
         children: vec![
             thead,
             Node::Eager {
                 tag: "tbody".into(),
-                attrs: hashmap! {},
+                attrs: Default::default(),
                 children: children.collect(),
             },
         ],
@@ -241,7 +240,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
     match tag {
         Tag::BlockQuote(None) => MaybeMany::one(Node::Eager {
             tag: "blockquote".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::BlockQuote(Some(kind)) => {
@@ -272,17 +271,17 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
         }
         Tag::DefinitionList => MaybeMany::one(Node::Eager {
             tag: "ul".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::DefinitionListTitle => MaybeMany::one(Node::Eager {
             tag: "dfn".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::DefinitionListDefinition => MaybeMany::one(Node::Eager {
             tag: "p".into(),
-            attrs: hashmap! {"class".into() => "dfn-description".into()},
+            attrs: indexmap! {"class".into() => "dfn-description".into()},
             children,
         }),
         Tag::FootnoteDefinition(id) => {
@@ -326,7 +325,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             body.extend(parse_until_next_heading(level, parser));
             MaybeMany::one(Node::Eager {
                 tag: "section".into(),
-                attrs: hashmap! {},
+                attrs: Default::default(),
                 children: body,
             })
         }
@@ -348,17 +347,17 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             let e = match first_number {
                 None => Node::Eager {
                     tag: "ul".into(),
-                    attrs: hashmap! {},
+                    attrs: Default::default(),
                     children,
                 },
                 Some(1) => Node::Eager {
                     tag: "ol".into(),
-                    attrs: hashmap! {},
+                    attrs: Default::default(),
                     children,
                 },
                 Some(n) => Node::Eager {
                     tag: "ol".into(),
-                    attrs: hashmap! {"start".into() => (n as i64).into()},
+                    attrs: indexmap! {"start".into() => (n as i64).into()},
                     children,
                 },
             };
@@ -366,54 +365,54 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
         }
         Tag::Item => MaybeMany::one(Node::Eager {
             tag: "li".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::MetadataBlock(_) => MaybeMany::none(),
         Tag::Paragraph => MaybeMany::one(Node::Eager {
             tag: "p".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Emphasis => MaybeMany::one(Node::Eager {
             tag: "em".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Strikethrough => MaybeMany::one(Node::Eager {
             tag: "s".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Strong => MaybeMany::one(Node::Eager {
             tag: "strong".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Subscript => MaybeMany::one(Node::Eager {
             tag: "sub".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Superscript => MaybeMany::one(Node::Eager {
             tag: "sup".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Table(aligns) => MaybeMany::one(construct_table(&aligns, children)),
         Tag::TableCell => MaybeMany::one(Node::Eager {
             tag: "td".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::TableHead => MaybeMany::one(Node::Eager {
             tag: "thead".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::TableRow => MaybeMany::one(Node::Eager {
             tag: "tr".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children,
         }),
         Tag::Link {
@@ -459,14 +458,14 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
         }
         Event::Code(code) => Node::Eager {
             tag: "code".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children: vec![Node::Text(code.into_string())],
         },
         Event::DisplayMath(math) => {
             match katex::render_with_opts(&math, KATEX_DISPLAY_MATH_OPTS.as_ref()) {
                 Ok(katex) => Node::Eager {
                     tag: "div".into(),
-                    attrs: hashmap! {},
+                    attrs: Default::default(),
                     children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
@@ -487,14 +486,14 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
             match katex::render_with_opts(&math, KATEX_INLINE_MATH_OPTS.as_ref()) {
                 Ok(katex) => Node::Eager {
                     tag: "span".into(),
-                    attrs: hashmap! {},
+                    attrs: Default::default(),
                     children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
                     Node::Eager {
                         tag: "span".into(),
-                        attrs: hashmap! {},
+                        attrs: Default::default(),
                         children: vec![Node::Text(math.into_string())],
                     }
                 }
@@ -508,22 +507,22 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
         },
         Event::HardBreak => Node::Eager {
             tag: "br".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children: vec![],
         },
         Event::Rule => Node::Eager {
             tag: "hr".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children: vec![],
         },
         Event::SoftBreak => Node::Eager {
             tag: "wbr".into(),
-            attrs: hashmap! {},
+            attrs: Default::default(),
             children: vec![],
         },
         Event::TaskListMarker(marker) => Node::Eager {
             tag: "input".into(),
-            attrs: hashmap! {
+            attrs: indexmap! {
                 "type".into() => "checkbox".into(),
                 "disabled".into() => true.into(),
                 "checked".into() => marker.into(),

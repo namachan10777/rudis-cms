@@ -122,6 +122,7 @@ pub enum MarkdownReference {
 
 #[derive(Serialize, Debug)]
 pub enum ColumnValue {
+    Id(String),
     Null,
     String(String),
     Number(serde_json::Number),

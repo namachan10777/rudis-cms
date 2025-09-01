@@ -8,11 +8,12 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 
 use crate::{
-    Error, ErrorContext, ErrorDetail,
-    backend::{self, RecordBackend},
+    Error, ErrorContext, ErrorDetail, backend,
     config::{self, DocumentSyntax, MarkdownStorage},
     field::{
-        ColumnValue, CompoundId, CompoundIdPrefix, MarkdownReference, markdown, object_loader,
+        ColumnValue, CompoundId, CompoundIdPrefix, MarkdownReference,
+        markdown::{self, compress},
+        object_loader,
     },
     schema::{self, TableSchemas},
 };
@@ -35,19 +36,6 @@ pub struct ImageColumnValue {
     pub content_type: String,
     pub hash: blake3::Hash,
     pub variants: Vec<ImageColumnValue>,
-}
-
-#[derive(Default)]
-struct Row {
-    fields: IndexMap<String, ColumnValue>,
-}
-
-impl Row {
-    fn with_compount_id(self, id: &CompoundId) -> Self {
-        Self {
-            fields: id.clone().assign_to_row(self.fields),
-        }
-    }
 }
 
 static FRONTMATTER_SEPARATOR_YAML: LazyLock<regex::Regex> =
@@ -110,6 +98,23 @@ fn is_normal_required_field(def: &schema::FieldType) -> bool {
         schema::FieldType::Markdown { required, .. } => *required,
         schema::FieldType::Records { required, .. } => *required,
     }
+}
+
+struct Row {
+    id: CompoundId,
+    fields: IndexMap<String, FieldValue>,
+}
+
+enum FieldValue {
+    Column(ColumnValue),
+    Markdown {
+        document: compress::RichTextDocument,
+        storage: config::MarkdownStorage,
+    },
+    Record {
+        table: String,
+        rows: Vec<(CompoundId, IndexMap<String, FieldValue>)>,
+    },
 }
 
 struct RecordContext<'c, R> {
@@ -310,20 +315,19 @@ fn process_datetime_field<'source, R: Send + Sync>(
     }
 }
 
-async fn process_records_field_impl<'source, R: RecordBackend + Sync + Send>(
+async fn process_records_field_impl<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     id: &CompoundId,
     table: &str,
     records: Vec<serde_json::Value>,
-) -> Result<(), Error> {
+) -> Result<Vec<(CompoundId, IndexMap<String, FieldValue>)>, Error> {
     let ctx = ctx.clone().nest(table, id.clone())?;
     let tasks = records.into_iter().map(|record| async {
         match record {
             serde_json::Value::String(id) => {
                 if ctx.current_schema().is_id_only_table() {
                     let id = ctx.id(id);
-                    ctx.backend.push_row(table, id, Default::default());
-                    Ok(())
+                    Ok((id, Default::default()))
                 } else {
                     bail!(
                         ctx.error,
@@ -334,10 +338,7 @@ async fn process_records_field_impl<'source, R: RecordBackend + Sync + Send>(
                     )
                 }
             }
-            serde_json::Value::Object(fields) => {
-                push_rows(&ctx, fields).await?;
-                Ok(())
-            }
+            serde_json::Value::Object(fields) => process_rows(&ctx, fields).await,
             _ => bail!(
                 ctx.error,
                 ErrorDetail::TypeMismatch {
@@ -347,16 +348,15 @@ async fn process_records_field_impl<'source, R: RecordBackend + Sync + Send>(
             ),
         }
     });
-    try_join_all(tasks).await?;
-    Ok(())
+    try_join_all(tasks).await
 }
 
-async fn process_records_field<'source, R: RecordBackend + Sync + Send>(
+async fn process_records_field<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     id: &CompoundId,
     table: &str,
     value: serde_json::Value,
-) -> Result<(), Error> {
+) -> Result<Vec<(CompoundId, IndexMap<String, FieldValue>)>, Error> {
     if let serde_json::Value::Array(records) = value {
         process_records_field_impl(ctx, id, table, records).await
     } else {
@@ -369,7 +369,7 @@ async fn process_records_field<'source, R: RecordBackend + Sync + Send>(
         )
     }
 }
-async fn process_image_field_impl<'source, R: RecordBackend + Sync + Send>(
+async fn process_image_field_impl<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     id: &CompoundId,
     name: &str,
@@ -388,7 +388,7 @@ async fn process_image_field_impl<'source, R: RecordBackend + Sync + Send>(
     Ok(ColumnValue::Image(value))
 }
 
-async fn process_image_field<'source, R: RecordBackend + Sync + Send>(
+async fn process_image_field<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     id: &CompoundId,
     name: &str,
@@ -409,7 +409,7 @@ async fn process_image_field<'source, R: RecordBackend + Sync + Send>(
     }
 }
 
-async fn process_file_field_impl<'source, R: RecordBackend + Send + Sync>(
+async fn process_file_field_impl<'source, R: backend::RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
     id: &CompoundId,
@@ -427,7 +427,7 @@ async fn process_file_field_impl<'source, R: RecordBackend + Send + Sync>(
     Ok(ColumnValue::File(value))
 }
 
-async fn process_file_field<'source, R: RecordBackend + Send + Sync>(
+async fn process_file_field<'source, R: backend::RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
     id: &CompoundId,
@@ -447,7 +447,7 @@ async fn process_file_field<'source, R: RecordBackend + Send + Sync>(
     }
 }
 
-async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
+async fn process_markdown_field_impl<'source, R: backend::RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
     id: &CompoundId,
@@ -455,7 +455,7 @@ async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
     _: &config::MarkdownConfig,
     image: &config::MarkdownImageConfig,
     src: &str,
-) -> Result<ColumnValue, Error> {
+) -> Result<FieldValue, Error> {
     let document = markdown::parser::parse(src);
     let document = markdown::resolver::RichTextDocument::resolve(
         document,
@@ -471,34 +471,13 @@ async fn process_markdown_field_impl<'source, R: RecordBackend + Send + Sync>(
     .await
     .map_err(|detail| ctx.error.error(detail))?;
     let document = markdown::compress::compress(document);
-    match storage {
-        MarkdownStorage::Inline => Ok(ColumnValue::Markdown(MarkdownReference::Inline {
-            content: document,
-        })),
-        MarkdownStorage::Kv { namespace, prefix } => {
-            match ctx
-                .backend
-                .push_markdown(
-                    &ctx.table,
-                    name,
-                    id,
-                    &backend::MarkdownStorage::Kv {
-                        namespace: namespace.clone(),
-                        prefix: prefix.clone(),
-                    },
-                    document,
-                )
-                .map_err(|detail| ctx.error.error(detail))?
-            {
-                backend::MarkdownReference::Kv { key } => {
-                    Ok(ColumnValue::Markdown(MarkdownReference::Kv { key }))
-                }
-            }
-        }
-    }
+    Ok(FieldValue::Markdown {
+        document,
+        storage: storage.clone(),
+    })
 }
 
-async fn process_markdown_field<'source, R: RecordBackend + Send + Sync>(
+async fn process_markdown_field<'source, R: backend::RecordBackend + Send + Sync>(
     ctx: &RecordContext<'source, R>,
     name: &str,
     id: &CompoundId,
@@ -506,7 +485,7 @@ async fn process_markdown_field<'source, R: RecordBackend + Send + Sync>(
     config: &config::MarkdownConfig,
     image: &config::MarkdownImageConfig,
     value: serde_json::Value,
-) -> Result<ColumnValue, Error> {
+) -> Result<FieldValue, Error> {
     if let serde_json::Value::String(src) = value {
         process_markdown_field_impl(ctx, name, id, storage, config, image, &src).await
     } else {
@@ -520,13 +499,13 @@ async fn process_markdown_field<'source, R: RecordBackend + Send + Sync>(
     }
 }
 
-async fn process_field<'source, R: RecordBackend + Sync + Send>(
+async fn process_field<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     id: &CompoundId,
     name: &str,
     def: &schema::FieldType,
     value: Option<serde_json::Value>,
-) -> Result<Option<ColumnValue>, Error> {
+) -> Result<Option<FieldValue>, Error> {
     let value = match value {
         Some(value) => value,
         None => {
@@ -536,27 +515,43 @@ async fn process_field<'source, R: RecordBackend + Sync + Send>(
             if is_normal_required_field(def) {
                 bail!(&ctx.error, ErrorDetail::MissingField(name.to_owned()));
             } else {
-                return Ok(Some(ColumnValue::Null));
+                return Ok(Some(FieldValue::Column(ColumnValue::Null)));
             }
         }
     };
     match def {
         schema::FieldType::Id => unreachable!(),
-        schema::FieldType::Hash => process_hash_field(ctx, name).map(Some),
-        schema::FieldType::Boolean { .. } => process_boolean_field(ctx, value).map(Some),
-        schema::FieldType::String { .. } => process_string_field(ctx, value).map(Some),
-        schema::FieldType::Integer { .. } => process_integer_field(ctx, value).map(Some),
-        schema::FieldType::Real { .. } => process_real_field(ctx, value).map(Some),
-        schema::FieldType::Date { .. } => process_date_field(ctx, value).map(Some),
-        schema::FieldType::Datetime { .. } => process_datetime_field(ctx, value).map(Some),
+        schema::FieldType::Hash => process_hash_field(ctx, name)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::Boolean { .. } => process_boolean_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::String { .. } => process_string_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::Integer { .. } => process_integer_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::Real { .. } => process_real_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::Date { .. } => process_date_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
+        schema::FieldType::Datetime { .. } => process_datetime_field(ctx, value)
+            .map(FieldValue::Column)
+            .map(Some),
         schema::FieldType::Image {
             transform, storage, ..
         } => process_image_field(ctx, id, name, transform, storage, value)
             .await
+            .map(FieldValue::Column)
             .map(Some),
         schema::FieldType::File { storage, .. } => {
             process_file_field(ctx, name, id, storage, value)
                 .await
+                .map(FieldValue::Column)
                 .map(Some)
         }
         schema::FieldType::Markdown {
@@ -568,16 +563,19 @@ async fn process_field<'source, R: RecordBackend + Sync + Send>(
             .await
             .map(Some),
         schema::FieldType::Records { table, .. } => {
-            process_records_field(ctx, id, table, value).await?;
-            Ok(None)
+            let rows = process_records_field(ctx, id, table, value).await?;
+            Ok(Some(FieldValue::Record {
+                table: table.clone(),
+                rows,
+            }))
         }
     }
 }
 
-async fn push_rows_impl<'source, R: RecordBackend + Sync + Send>(
+async fn process_rows_impl<'source, R: backend::RecordBackend + Sync + Send>(
     ctx: &RecordContext<'source, R>,
     mut fields: serde_json::Map<String, serde_json::Value>,
-) -> Result<(), Error> {
+) -> Result<(CompoundId, IndexMap<String, FieldValue>), Error> {
     let schema = ctx.current_schema();
     let id =
         extract_id_value(&schema.id_name, &mut fields).map_err(|detail| ctx.error.error(detail))?;
@@ -594,17 +592,17 @@ async fn push_rows_impl<'source, R: RecordBackend + Sync + Send>(
             row.insert(name.clone(), value);
         }
     }
-    ctx.backend.push_row(&ctx.table, id, row);
-    Ok(())
-}
-fn push_rows<'source, 'c, R: RecordBackend + Sync + Send>(
-    ctx: &'c RecordContext<'source, R>,
-    fields: serde_json::Map<String, serde_json::Value>,
-) -> Pin<Box<dyn 'c + Future<Output = Result<(), Error>>>> {
-    Box::pin(push_rows_impl(ctx, fields))
+    Ok((id, row))
 }
 
-pub async fn push_rows_from_document<P: AsRef<Path>, R: RecordBackend + Sync + Send>(
+fn process_rows<'source, 'c, R: backend::RecordBackend + Sync + Send>(
+    ctx: &'c RecordContext<'source, R>,
+    fields: serde_json::Map<String, serde_json::Value>,
+) -> Pin<Box<dyn 'c + Future<Output = Result<(CompoundId, IndexMap<String, FieldValue>), Error>>>> {
+    Box::pin(process_rows_impl(ctx, fields))
+}
+
+pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend + Sync + Send>(
     table: &str,
     schema: &schema::TableSchemas,
     syntax: &DocumentSyntax,
@@ -637,6 +635,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>, R: RecordBackend + Sync + S
         document_path: path.as_ref().to_owned(),
         backend,
     };
-    push_rows(&ctx, fields).await?;
+    let (id, fields) = process_rows(&ctx, fields).await?;
+
     Ok(())
 }

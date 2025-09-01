@@ -1,6 +1,5 @@
+use indexmap::indexmap;
 use std::path::Path;
-
-use maplit::hashmap;
 
 use crate::{
     backend::RecordBackend,
@@ -177,7 +176,7 @@ impl<'r> Resolvers<'r> {
                     }
                     None => Node::Eager {
                         tag: "img".into(),
-                        attrs: hashmap! {
+                        attrs: indexmap! {
                             "alt".into() => title.into(),
                             "id".into() => id.into()
                         },
@@ -211,7 +210,7 @@ impl<'r> Resolvers<'r> {
                 children,
             } => Node::Eager {
                 tag: "a".into(),
-                attrs: hashmap! {
+                attrs: indexmap! {
                     "href".into() => dest_url.into(),
                     "title".into() => title.into(),
                     "id".into() => id.into(),

@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use futures::future::join_all;
+use indexmap::IndexMap;
 use tracing::warn;
 use url::Url;
 
@@ -62,7 +63,7 @@ impl<'s> LinkCardExtractor<'s> {
 }
 
 pub(super) struct LinkCardResolver {
-    links: HashMap<String, LinkCard>,
+    links: IndexMap<String, LinkCard>,
 }
 
 async fn load_image(src: &str) -> Option<LinkCardImage> {
@@ -113,7 +114,7 @@ async fn resolve_link_card(link: &str) -> Result<LinkCard, anyhow::Error> {
                 _ => None,
             }
         }))
-        .collect::<HashMap<_, _>>();
+        .collect::<IndexMap<_, _>>();
 
     let href = url::Url::parse(link)?;
 

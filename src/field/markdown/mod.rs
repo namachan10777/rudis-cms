@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::hash::Hash;
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ pub enum LinkType {
 pub enum Node<K> {
     Eager {
         tag: Name,
-        attrs: HashMap<Name, AttrValue>,
+        attrs: IndexMap<Name, AttrValue>,
         children: Vec<Node<K>>,
     },
     Text(String),
@@ -80,7 +80,7 @@ impl<E> From<html_parser::Node> for Node<E> {
                         Some(value) => (name.into(), value.into()),
                         None => (name.into(), AttrValue::Bool(true)),
                     })
-                    .collect::<HashMap<Name, AttrValue>>();
+                    .collect::<IndexMap<Name, AttrValue>>();
                 if let Some(id) = id {
                     attrs.insert("id".into(), id.into());
                 }

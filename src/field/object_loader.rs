@@ -1,10 +1,8 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use derive_debug::Dbg;
 use image::GenericImageView as _;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::field::markdown::{
@@ -206,8 +204,8 @@ pub enum ImageLoadError {
 #[derive(Debug, Clone)]
 pub enum SvgNode {
     Node {
-        name: Name,
-        attrs: HashMap<Name, AttrValue>,
+        tag: Name,
+        attrs: IndexMap<Name, AttrValue>,
         children: Vec<SvgNode>,
     },
     Text(String),
@@ -218,11 +216,11 @@ impl<K> From<SvgNode> for Node<K> {
         match value {
             SvgNode::Text(text) => Self::Text(text),
             SvgNode::Node {
-                name,
+                tag,
                 attrs,
                 children,
             } => Self::Eager {
-                tag: name,
+                tag,
                 attrs,
                 children: children.into_iter().map(Into::into).collect(),
             },
@@ -252,7 +250,7 @@ fn build_svg_tree<'a, 'input>(xml: roxmltree::Node<'a, 'input>) -> SvgNode {
             })
             .collect();
         SvgNode::Node {
-            name,
+            tag: name,
             attrs,
             children: xml.children().map(build_svg_tree).collect(),
         }
