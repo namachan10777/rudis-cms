@@ -38,6 +38,7 @@ impl<'s> ImageSrcExtractor<'s> {
 
 pub struct ImageResolver {
     map: IndexMap<String, ImageResolved>,
+    hashes: Vec<blake3::Hash>,
 }
 
 pub struct Config<'a> {
@@ -69,11 +70,13 @@ impl<'a> ImageSrcExtractor<'a> {
             match image {
                 object_loader::Image {
                     body: ImageContent::Vector { tree, size, .. },
+                    hash,
                     ..
                 } if size < config.embed_svg_threshold => {
-                    Ok((src.to_owned(), ImageResolved::EmbedSvg { tree }))
+                    Ok((src.to_owned(), (ImageResolved::EmbedSvg { tree }, hash)))
                 }
                 image => {
+                    let hash = image.hash;
                     let image = backend.push_markdown_image(
                         table,
                         column,
@@ -82,18 +85,25 @@ impl<'a> ImageSrcExtractor<'a> {
                         config.storage,
                         image,
                     )?;
-                    Ok((src.to_owned(), ImageResolved::Reference(image)))
+                    Ok((src.to_owned(), (ImageResolved::Reference(image), hash)))
                 }
             }
         });
-        Ok(ImageResolver {
-            map: try_join_all(tasks).await?.into_iter().collect(),
-        })
+        let (map, hashes) = try_join_all(tasks)
+            .await?
+            .into_iter()
+            .map(|(src, (resolved, hash))| ((src, resolved), hash))
+            .unzip();
+        Ok(ImageResolver { map, hashes })
     }
 }
 
 impl ImageResolver {
     pub(super) fn resolve(&self, src: &str) -> Option<&ImageResolved> {
         self.map.get(src)
+    }
+
+    pub(super) fn hashes(self) -> Vec<blake3::Hash> {
+        self.hashes
     }
 }

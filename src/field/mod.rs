@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{collections::BinaryHeap, fmt::Debug, ptr::hash};
 
 use indexmap::IndexMap;
 use itertools::{EitherOrBoth, Itertools};
@@ -61,18 +61,12 @@ impl CompoundId {
         Ok(CompoundIdPrefix(prefix))
     }
 
-    pub(crate) fn assign_to_row(
-        self,
-        row: IndexMap<String, ColumnValue>,
-    ) -> IndexMap<String, ColumnValue> {
-        let Self { prefix, id, name } = self;
-        let mut new_row = IndexMap::<String, ColumnValue>::new();
-        for (name, value) in prefix.0 {
-            new_row.insert(name, value.into());
-        }
-        new_row.insert(name, id.into());
-        new_row.extend(row.into_iter());
-        new_row
+    pub(crate) fn pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.prefix
+            .0
+            .iter()
+            .map(|(name, id)| (name.as_str(), id.as_str()))
+            .chain(std::iter::once((self.name.as_str(), self.id.as_str())))
     }
 }
 
@@ -86,7 +80,7 @@ impl CompoundIdPrefix {
     }
 }
 
-#[derive(Clone, Serialize, Debug)]
+#[derive(Clone, Serialize, Debug, Hash)]
 pub struct ImageVariantLocation {
     pub url: url::Url,
     pub width: u32,
@@ -94,7 +88,7 @@ pub struct ImageVariantLocation {
     pub content_type: String,
 }
 
-#[derive(Clone, Serialize, Debug)]
+#[derive(Clone, Serialize, Debug, Hash)]
 pub struct ImageReference {
     pub url: url::Url,
     pub width: u32,
@@ -105,7 +99,7 @@ pub struct ImageReference {
     pub variants: Vec<ImageVariantLocation>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Hash)]
 pub struct FileReference {
     pub url: url::Url,
     pub size: u64,
@@ -113,16 +107,17 @@ pub struct FileReference {
     pub hash: blake3::Hash,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Hash)]
 #[serde(tag = "type")]
 pub enum MarkdownReference {
-    Inline { content: compress::RichTextDocument },
+    Inline { content: serde_json::Value },
     Kv { key: String },
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Hash)]
 pub enum ColumnValue {
     Id(String),
+    Hash(blake3::Hash),
     Null,
     String(String),
     Number(serde_json::Number),

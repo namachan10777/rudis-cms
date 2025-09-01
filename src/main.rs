@@ -22,7 +22,9 @@ struct Opts {
 async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
         SubCommand::Batch => {
+            let mut hasher = blake3::Hasher::new();
             let config = smol::fs::read_to_string(&opts.config).await?;
+            hasher.update(config.as_bytes());
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             if let Some(basedir) = opts
                 .config
@@ -39,6 +41,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 for path in glob::glob(&collection.glob)? {
                     record::push_rows_from_document(
                         &collection.table,
+                        hasher.clone(),
                         &schema,
                         &collection.syntax,
                         &backend,

@@ -235,7 +235,7 @@ impl RichTextDocument {
         transform: &config::ImageTransform,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,
-    ) -> Result<Self, crate::ErrorDetail> {
+    ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
         let mut footnote_resolver = footnote::FootnoteResolver::new(&document.footnotes);
         let mut image_extractor = image::ImageSrcExtractor::default();
         let mut link_card_extractor = link_card::LinkCardExtractor::default();
@@ -276,12 +276,13 @@ impl RichTextDocument {
             })
             .collect();
 
-        Ok(RichTextDocument {
+        let document = RichTextDocument {
             root: root
                 .into_iter()
                 .map(|node| resolvers.rewrite(node))
                 .collect(),
             footnotes,
-        })
+        };
+        Ok((document, image_resolver.hashes()))
     }
 }
