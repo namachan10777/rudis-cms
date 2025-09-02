@@ -7,7 +7,7 @@ use crate::{
         CompoundId,
         markdown::{
             Node,
-            compress::{self, Codeblock, FootnoteReference, Heading, Image, Keep},
+            compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
             parser::{KeepRaw, RichTextDocumentRaw},
             raw_to_expanded,
             resolver::image::ImageResolved,
@@ -146,22 +146,12 @@ impl<'r> Resolvers<'r> {
                 let img = match self.image.resolve(&url) {
                     Some(ImageResolved::Reference(reference)) => Node::Lazy {
                         keep: Keep::Image(Image {
-                            src: reference.url.clone(),
+                            storage: reference.pointer.clone(),
                             blurhash: reference.blurhash.clone(),
                             alt: title,
                             width: reference.width,
                             height: reference.height,
                             content_type: reference.content_type.clone(),
-                            variants: reference
-                                .variants
-                                .iter()
-                                .map(|variant| compress::ImageSizeVariant {
-                                    src: variant.url.clone(),
-                                    width: variant.width,
-                                    height: variant.height,
-                                    content_type: variant.content_type.clone(),
-                                })
-                                .collect::<Vec<_>>(),
                         }),
                         children: Default::default(),
                     },
@@ -229,7 +219,6 @@ impl RichTextDocument {
         document_path: Option<&Path>,
         backend: &backend::Uploads,
         id: &CompoundId,
-        derivery: &config::ImageDerivery,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,
     ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
@@ -242,7 +231,6 @@ impl RichTextDocument {
         document.for_each_content(|node| link_card_extractor.analyze(node));
 
         let config = image::Config {
-            derivery,
             storage,
             embed_svg_threshold,
         };

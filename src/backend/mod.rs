@@ -43,6 +43,7 @@ pub struct AssetObject {
 
 #[derive(Default)]
 pub struct Uploads {
+    local_mock: bool,
     kv: crossbeam::queue::SegQueue<KvObject>,
     r2: crossbeam::queue::SegQueue<R2Object>,
     asset: crossbeam::queue::SegQueue<AssetObject>,
@@ -84,7 +85,6 @@ impl Uploads {
     pub(crate) fn push_image(
         &self,
         storage: &config::ImageStorage,
-        derivery: &config::ImageDerivery,
         id: &CompoundId,
         image: object_loader::Image,
         distinguish_by_image_id: bool,
@@ -109,7 +109,7 @@ impl Uploads {
                     bucket: bucket.clone(),
                     key: key.clone(),
                 };
-                ImageReference::build(derivery, id, image, distinguish_by_image_id, pointer)
+                ImageReference::build(image, pointer)
             }
             config::ImageStorage::Asset { dir } => {
                 let path = PathBuf::from(dir);
@@ -126,7 +126,7 @@ impl Uploads {
                     body: image.original.clone(),
                 });
                 let pointer = StoragePointer::Asset { path };
-                ImageReference::build(derivery, id, image, distinguish_by_image_id, pointer)
+                ImageReference::build(image, pointer)
             }
         }
     }
@@ -134,7 +134,6 @@ impl Uploads {
     pub(crate) fn push_file(
         &self,
         storage: &config::FileStorage,
-        derivery: &config::FileDerivery,
         id: &CompoundId,
         file: object_loader::Object,
     ) -> FileReference {
@@ -155,7 +154,7 @@ impl Uploads {
                     bucket: bucket.clone(),
                     key: key.clone(),
                 };
-                FileReference::build(derivery, id, &file, pointer)
+                FileReference::build(&file, pointer)
             }
             config::FileStorage::Asset { dir } => {
                 let path = PathBuf::from(dir);
@@ -166,7 +165,7 @@ impl Uploads {
                     body: file.body.clone(),
                 });
                 let pointer = StoragePointer::Asset { path };
-                FileReference::build(derivery, id, &file, pointer)
+                FileReference::build(&file, pointer)
             }
         }
     }

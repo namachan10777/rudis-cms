@@ -417,7 +417,6 @@ async fn process_image_field<'source>(
     ctx: &RecordContext<'source>,
     hasher: &mut blake3::Hasher,
     id: &CompoundId,
-    derivery: &config::ImageDerivery,
     storage: &config::ImageStorage,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
@@ -435,9 +434,7 @@ async fn process_image_field<'source>(
         .map_err(ErrorDetail::LoadImage)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(image.hash.as_bytes());
-    let reference = ctx
-        .backend
-        .push_image(storage, derivery, id, image.clone(), false);
+    let reference = ctx.backend.push_image(storage, id, image.clone(), false);
     Ok(ColumnValue::Image(reference))
 }
 
@@ -446,7 +443,6 @@ async fn process_file_field<'source>(
     hasher: &mut blake3::Hasher,
     id: &CompoundId,
     storage: &config::FileStorage,
-    derivery: &config::FileDerivery,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     let serde_json::Value::String(src) = value else {
@@ -463,7 +459,7 @@ async fn process_file_field<'source>(
         .map_err(ErrorDetail::Load)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(file.hash.as_bytes());
-    let reference = ctx.backend.push_file(storage, derivery, id, file.clone());
+    let reference = ctx.backend.push_file(storage, id, file.clone());
     Ok(ColumnValue::File(reference))
 }
 
@@ -491,7 +487,6 @@ async fn process_markdown_field<'source>(
         Some(&ctx.document_path),
         ctx.backend,
         id,
-        &image.derivery,
         &image.storage,
         image.embed_svg_threshold,
     )
@@ -547,16 +542,16 @@ async fn process_field<'source>(
         schema::FieldType::Datetime { .. } => {
             process_datetime_field(ctx, value).map(FieldValue::Column)?
         }
-        schema::FieldType::Image {
-            derivery, storage, ..
-        } => process_image_field(ctx, hasher, id, derivery, storage, value)
-            .await
-            .map(FieldValue::Column)?,
-        schema::FieldType::File {
-            storage, derivery, ..
-        } => process_file_field(ctx, hasher, id, storage, derivery, value)
-            .await
-            .map(FieldValue::Column)?,
+        schema::FieldType::Image { storage, .. } => {
+            process_image_field(ctx, hasher, id, storage, value)
+                .await
+                .map(FieldValue::Column)?
+        }
+        schema::FieldType::File { storage, .. } => {
+            process_file_field(ctx, hasher, id, storage, value)
+                .await
+                .map(FieldValue::Column)?
+        }
         schema::FieldType::Markdown {
             image,
             config,

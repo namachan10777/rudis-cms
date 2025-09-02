@@ -3,9 +3,12 @@ use std::fmt::Write;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::field::markdown::{
-    AlertKind, resolver, text_content,
-    types::{AttrValue, Name},
+use crate::field::{
+    StoragePointer,
+    markdown::{
+        AlertKind, resolver, text_content,
+        types::{AttrValue, Name},
+    },
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -108,13 +111,12 @@ pub struct ImageSizeVariant {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Image {
-    pub src: url::Url,
     pub blurhash: Option<String>,
     pub alt: String,
     pub width: u32,
     pub height: u32,
     pub content_type: String,
-    pub variants: Vec<ImageSizeVariant>,
+    pub storage: StoragePointer,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

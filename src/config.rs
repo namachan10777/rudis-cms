@@ -34,33 +34,9 @@ pub enum ImageFormat {
 }
 
 #[derive(Deserialize, Clone, Debug)]
-pub struct ImageDeriveryVariants {
-    pub width: u32,
-    pub content_type: String,
-    pub query: String,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct ImageDerivery {
-    pub endpoint: String,
-    pub query: Option<String>,
-    pub width: Option<u32>,
-    pub format: Option<ImageFormat>,
-    #[serde(default)]
-    pub variants: Vec<ImageDeriveryVariants>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct FileDerivery {
-    pub endpoint: String,
-    pub query: Option<String>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownImageConfig {
     pub table: String,
     pub storage: ImageStorage,
-    pub derivery: ImageDerivery,
     pub embed_svg_threshold: usize,
 }
 
@@ -122,13 +98,11 @@ pub enum Field {
         #[serde(default)]
         required: bool,
         storage: ImageStorage,
-        derivery: ImageDerivery,
     },
     File {
         #[serde(default)]
         required: bool,
         storage: FileStorage,
-        derivery: FileDerivery,
     },
     Records {
         #[serde(default)]

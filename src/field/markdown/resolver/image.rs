@@ -41,7 +41,6 @@ pub struct ImageResolver {
 
 pub struct Config<'a> {
     pub(super) embed_svg_threshold: usize,
-    pub(super) derivery: &'a config::ImageDerivery,
     pub(super) storage: &'a config::ImageStorage,
 }
 
@@ -73,13 +72,7 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let reference = uploads.push_image(
-                        config.storage,
-                        config.derivery,
-                        id,
-                        image.clone(),
-                        true,
-                    );
+                    let reference = uploads.push_image(config.storage, id, image.clone(), true);
                     Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }
