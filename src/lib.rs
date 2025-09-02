@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use crate::field::{CompoundId, object_loader};
 
-pub mod backend;
 pub mod config;
 pub mod field;
 pub mod record;

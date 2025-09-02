@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod markdown;
 pub mod object_loader;
+pub mod upload;
 
 #[derive(Clone, Default, Debug)]
 pub struct CompoundIdPrefix(Vec<(String, String)>);

@@ -2,7 +2,7 @@ use indexmap::indexmap;
 use std::path::Path;
 
 use crate::{
-    backend, config,
+    config,
     field::{
         CompoundId,
         markdown::{
@@ -13,6 +13,7 @@ use crate::{
             resolver::image::ImageResolved,
             text_content,
         },
+        upload,
     },
 };
 
@@ -217,7 +218,7 @@ impl RichTextDocument {
     pub async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        backend: &backend::UploadCollector,
+        backend: &upload::UploadCollector,
         id: &CompoundId,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,

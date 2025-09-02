@@ -12,12 +12,12 @@ use serde::{
 };
 
 use crate::{
-    Error, ErrorContext, ErrorDetail, backend,
+    Error, ErrorContext, ErrorDetail,
     config::{self, DocumentSyntax},
     field::{
         self, ColumnValue, CompoundId, CompoundIdPrefix,
         markdown::{self, compress},
-        object_loader,
+        object_loader, upload,
     },
     schema::{self, TableSchemas},
 };
@@ -164,7 +164,7 @@ struct RecordContext<'c> {
     compound_id_prefix: CompoundIdPrefix,
     error: ErrorContext,
     document_path: PathBuf,
-    backend: &'c backend::UploadCollector,
+    backend: &'c upload::UploadCollector,
 }
 
 impl<'c> Clone for RecordContext<'c> {
@@ -647,7 +647,7 @@ async fn process_row_impl<'source>(
             }) => {
                 markdowns.insert(
                     name.clone(),
-                    (document, backend::MarkdownStorage::Kv { namespace, prefix }),
+                    (document, upload::MarkdownStorage::Kv { namespace, prefix }),
                 );
             }
             None => {}
@@ -663,9 +663,11 @@ async fn process_row_impl<'source>(
         records: &records,
     };
     let frontmatter = serde_json::to_value(&frontmatter).unwrap();
-    for (document, storage) in markdowns.into_values() {
-        ctx.backend
+    for (name, (document, storage)) in markdowns.into_iter() {
+        let reference = ctx
+            .backend
             .push_markdown(&storage, &id, document, frontmatter.clone());
+        fields.insert(name, ColumnValue::Markdown(reference));
     }
     Ok(RowNode {
         id,
@@ -713,7 +715,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>>(
     mut hasher: blake3::Hasher,
     schema: &schema::TableSchemas,
     syntax: &DocumentSyntax,
-    backend: &backend::UploadCollector,
+    backend: &upload::UploadCollector,
     path: P,
 ) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());

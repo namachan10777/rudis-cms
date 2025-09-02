@@ -1,10 +1,11 @@
 use std::{path::PathBuf, sync::LazyLock};
 
 use indexmap::IndexMap;
+use tracing::{debug, trace};
 
 use crate::{
-    backend::{AssetUpload, KvUpload, R2Upload, Uploads},
     field::StoragePointer,
+    field::upload::{AssetUpload, KvUpload, R2Upload, Uploads},
     record,
     schema::{self, TableSchemas},
 };
@@ -98,15 +99,27 @@ fn create_ctx_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item 
     })
 }
 
-fn create_ctx_internal_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn create_ctx_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         let ty = sqlite_type_name(field)?;
+        if matches!(field, schema::FieldType::Id) {
+            return None;
+        }
         Some(liquid::object!({
             "name": name,
             "type": ty,
             "not_null": is_required(field),
             "is_primary_key": matches!(field, schema::FieldType::Id),
         }))
+    })
+}
+
+fn create_ctx_id_column(schema: &schema::Schema) -> liquid::Object {
+    liquid::object!({
+        "name": schema.id_name,
+        "type": "TEXT",
+        "not_null": true,
+        "is_primary_key": true,
     })
 }
 
@@ -178,7 +191,8 @@ fn create_ctx_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::
             .map(|(table, schema)| {
                 let ctx = liquid::object!({
                     "name": table,
-                    "columns": create_ctx_inherit_id_columns(schema).chain(create_ctx_internal_columns(schema)).collect::<Vec<_>>(),
+                    "columns": create_ctx_inherit_id_columns(schema).chain(std::iter::once(create_ctx_id_column(schema))).chain(create_ctx_columns(schema)).collect::<Vec<_>>(),
+                    "data_columns": create_ctx_columns(schema).collect::<Vec<_>>(),
                     "indexes": create_ctx_internal_column_indexes(schema).chain(create_ctx_object_hash_indexes(schema)).collect::<Vec<_>>(),
                     "parent": create_ctx_parent(schema),
                     "primary_key": create_ctx_primary_key(schema),
@@ -263,10 +277,13 @@ async fn upsert(
             None
         }).collect::<Vec<_>>()
     });
-    conn.execute(
-        &UPSERT.render(&upsert_ctx).unwrap(),
-        [serde_json::to_string(&tables).unwrap()],
-    )?;
+    let statements = UPSERT.render(&upsert_ctx).unwrap();
+    for statement in statements.split(";") {
+        if statement.trim().is_empty() {
+            continue;
+        }
+        conn.execute(statement, [serde_json::to_string(&tables).unwrap()])?;
+    }
     Ok(())
 }
 
@@ -290,7 +307,7 @@ pub struct Deletions {
     pub asset: Vec<AssetDelete>,
 }
 
-pub trait StroageBackend {
+pub trait StorageBackend {
     fn upload(
         &self,
         r2: impl Iterator<Item = R2Upload>,
@@ -310,7 +327,7 @@ pub async fn batch(
     schema: &TableSchemas,
     tables: record::Tables,
     mut upload_candidates: Uploads,
-    backend: &impl StroageBackend,
+    backend: &impl StorageBackend,
 ) -> Result<(), Error> {
     let base_ctx = create_ctx(schema);
     let present_hashes = fetch_all_hashes(conn, &base_ctx).await?;
@@ -323,11 +340,14 @@ pub async fn batch(
     upload_candidates
         .asset
         .retain(|k, _| !present_hashes.contains_key(k));
+    debug!("upload filtered");
     let Uploads { r2, kv, asset } = upload_candidates;
     backend
         .upload(r2.into_values(), kv.into_values(), asset.into_values())
         .await?;
+    debug!("upload finished");
     upsert(conn, schema, &tables).await?;
+    debug!("upsert finished");
     let after_all_hashes = fetch_all_hashes(conn, &base_ctx).await?;
     let mut r2_deletes = Vec::new();
     let mut kv_deletes = Vec::new();
@@ -358,5 +378,6 @@ pub async fn batch(
             asset_deletes.into_iter(),
         )
         .await?;
+    debug!("clean up finished");
     Ok(())
 }

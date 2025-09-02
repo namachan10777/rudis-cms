@@ -4,11 +4,12 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 
 use crate::{
-    ErrorDetail, backend, config,
+    ErrorDetail, config,
     field::{
         CompoundId, ImageReference,
         markdown::{Node, parser::KeepRaw},
         object_loader::{self, ImageContent, SvgNode},
+        upload,
     },
 };
 
@@ -53,7 +54,7 @@ impl<'a> ImageSrcExtractor<'a> {
     pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        uploads: &backend::UploadCollector,
+        uploads: &upload::UploadCollector,
         id: &CompoundId,
         config: Config<'a>,
     ) -> Result<ImageResolver, ErrorDetail> {
