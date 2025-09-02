@@ -60,11 +60,12 @@ pub(crate) enum FieldType {
     Image {
         required: bool,
         storage: config::ImageStorage,
-        transform: config::ImageTransform,
+        derivery: config::ImageDerivery,
     },
     File {
         required: bool,
         storage: config::FileStorage,
+        derivery: config::FileDerivery,
     },
     Markdown {
         required: bool,
@@ -151,16 +152,21 @@ impl Schema {
                     },
                     config::Field::Image {
                         required,
-                        transform,
                         storage,
+                        derivery,
                     } => FieldType::Image {
                         required: *required,
-                        transform: transform.clone(),
+                        derivery: derivery.clone(),
                         storage: storage.clone(),
                     },
-                    config::Field::File { required, storage } => FieldType::File {
+                    config::Field::File {
+                        required,
+                        storage,
+                        derivery,
+                    } => FieldType::File {
                         required: *required,
                         storage: storage.clone(),
+                        derivery: derivery.clone(),
                     },
                     config::Field::Records {
                         required,

@@ -57,4 +57,5 @@ blurhash = "0.2"
 rusqlite = "0.37"
 mime_guess = "2"
 mime = "0.3"
-bincode = { version = "2.0.1", features = ["serde"] }
+bincode = { version = "2", features = ["serde"] }
+crossbeam = { version = "0.8", features = ["crossbeam-queue"] }

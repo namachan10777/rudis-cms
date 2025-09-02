@@ -177,6 +177,7 @@ impl ImageContent {
 #[derive(Dbg, Clone)]
 pub struct Image {
     pub body: ImageContent,
+    pub original: Box<[u8]>,
     pub derived_id: String,
     pub hash: blake3::Hash,
     pub content_type: String,
@@ -283,6 +284,7 @@ pub async fn load_image(src: &str, document_path: Option<&Path>) -> Result<Image
                     dimensions: (size.width(), size.height()),
                     tree,
                 },
+                original: object.body,
                 content_type: "image/svg+xml".to_owned(),
                 derived_id: object.derived_id,
                 hash: object.hash,
@@ -299,6 +301,7 @@ pub async fn load_image(src: &str, document_path: Option<&Path>) -> Result<Image
             Ok(Image {
                 body: ImageContent::Raster { data },
                 derived_id: object.derived_id,
+                original: object.body,
                 hash: object.hash,
                 origin: object.origin,
                 content_type: object.content_type,

@@ -157,17 +157,17 @@ impl Serialize for FieldValue {
     }
 }
 
-struct RecordContext<'c, R> {
+struct RecordContext<'c> {
     table: String,
     schema: Arc<TableSchemas>,
     hasher: blake3::Hasher,
     compound_id_prefix: CompoundIdPrefix,
     error: ErrorContext,
     document_path: PathBuf,
-    backend: &'c R,
+    backend: &'c backend::Uploads,
 }
 
-impl<'c, R> Clone for RecordContext<'c, R> {
+impl<'c> Clone for RecordContext<'c> {
     fn clone(&self) -> Self {
         Self {
             table: self.table.clone(),
@@ -181,7 +181,7 @@ impl<'c, R> Clone for RecordContext<'c, R> {
     }
 }
 
-impl<'source, R> RecordContext<'source, R> {
+impl<'source> RecordContext<'source> {
     fn current_schema(&self) -> &Arc<schema::Schema> {
         self.schema.get(&self.table).unwrap()
     }
@@ -223,15 +223,15 @@ macro_rules! bail {
     };
 }
 
-fn process_hash_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_hash_field<'source>(
+    ctx: &RecordContext<'source>,
     name: &str,
 ) -> Result<ColumnValue, Error> {
     bail!(ctx.error, ErrorDetail::FoundComputedField(name.to_owned()))
 }
 
-fn process_boolean_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_boolean_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::Bool(b) = value {
@@ -247,8 +247,8 @@ fn process_boolean_field<'source, R: Send + Sync>(
     }
 }
 
-fn process_integer_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_integer_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::Number(n) = value {
@@ -274,8 +274,8 @@ fn process_integer_field<'source, R: Send + Sync>(
     }
 }
 
-fn process_real_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_real_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::Number(n) = value {
@@ -301,8 +301,8 @@ fn process_real_field<'source, R: Send + Sync>(
     }
 }
 
-fn process_string_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_string_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(string) = value {
@@ -318,8 +318,8 @@ fn process_string_field<'source, R: Send + Sync>(
     }
 }
 
-fn process_date_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_date_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(date) = value {
@@ -338,8 +338,8 @@ fn process_date_field<'source, R: Send + Sync>(
     }
 }
 
-fn process_datetime_field<'source, R: Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+fn process_datetime_field<'source>(
+    ctx: &RecordContext<'source>,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     if let serde_json::Value::String(datetime) = value {
@@ -359,8 +359,8 @@ fn process_datetime_field<'source, R: Send + Sync>(
     }
 }
 
-async fn process_records_field<'source, R: backend::RecordBackend + Sync + Send>(
-    ctx: &RecordContext<'source, R>,
+async fn process_records_field<'source>(
+    ctx: &RecordContext<'source>,
     id: &CompoundId,
     table: &str,
     value: serde_json::Value,
@@ -413,12 +413,11 @@ async fn process_records_field<'source, R: backend::RecordBackend + Sync + Send>
     Ok(rows)
 }
 
-async fn process_image_field<'source, R: backend::RecordBackend + Sync + Send>(
-    ctx: &RecordContext<'source, R>,
+async fn process_image_field<'source>(
+    ctx: &RecordContext<'source>,
     hasher: &mut blake3::Hasher,
     id: &CompoundId,
-    name: &str,
-    transform: &config::ImageTransform,
+    derivery: &config::ImageDerivery,
     storage: &config::ImageStorage,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
@@ -436,19 +435,18 @@ async fn process_image_field<'source, R: backend::RecordBackend + Sync + Send>(
         .map_err(ErrorDetail::LoadImage)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(image.hash.as_bytes());
-    let value = ctx
+    let reference = ctx
         .backend
-        .push_image(&ctx.table, name, id, transform, storage, image)
-        .map_err(|detail| ctx.error.error(detail))?;
-    Ok(ColumnValue::Image(value))
+        .push_image(storage, derivery, id, image.clone(), false);
+    Ok(ColumnValue::Image(reference))
 }
 
-async fn process_file_field<'source, R: backend::RecordBackend + Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+async fn process_file_field<'source>(
+    ctx: &RecordContext<'source>,
     hasher: &mut blake3::Hasher,
-    name: &str,
     id: &CompoundId,
     storage: &config::FileStorage,
+    derivery: &config::FileDerivery,
     value: serde_json::Value,
 ) -> Result<ColumnValue, Error> {
     let serde_json::Value::String(src) = value else {
@@ -465,17 +463,13 @@ async fn process_file_field<'source, R: backend::RecordBackend + Send + Sync>(
         .map_err(ErrorDetail::Load)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(file.hash.as_bytes());
-    let value = ctx
-        .backend
-        .push_file(&ctx.table, name, id, storage, file)
-        .map_err(|detail| ctx.error.error(detail))?;
-    Ok(ColumnValue::File(value))
+    let reference = ctx.backend.push_file(storage, derivery, id, file.clone());
+    Ok(ColumnValue::File(reference))
 }
 
-async fn process_markdown_field<'source, R: backend::RecordBackend + Send + Sync>(
-    ctx: &RecordContext<'source, R>,
+async fn process_markdown_field<'source>(
+    ctx: &RecordContext<'source>,
     hasher: &mut blake3::Hasher,
-    name: &str,
     id: &CompoundId,
     storage: &config::MarkdownStorage,
     _: &config::MarkdownConfig,
@@ -496,10 +490,8 @@ async fn process_markdown_field<'source, R: backend::RecordBackend + Send + Sync
         document,
         Some(&ctx.document_path),
         ctx.backend,
-        &ctx.table,
-        name,
         id,
-        &image.transform,
+        &image.derivery,
         &image.storage,
         image.embed_svg_threshold,
     )
@@ -516,8 +508,8 @@ async fn process_markdown_field<'source, R: backend::RecordBackend + Send + Sync
     Ok((value, hasher.finalize()))
 }
 
-async fn process_field<'source, R: backend::RecordBackend + Sync + Send>(
-    ctx: &RecordContext<'source, R>,
+async fn process_field<'source>(
+    ctx: &RecordContext<'source>,
     hasher: &mut blake3::Hasher,
     id: &CompoundId,
     name: &str,
@@ -556,15 +548,15 @@ async fn process_field<'source, R: backend::RecordBackend + Sync + Send>(
             process_datetime_field(ctx, value).map(FieldValue::Column)?
         }
         schema::FieldType::Image {
-            transform, storage, ..
-        } => process_image_field(ctx, hasher, id, name, transform, storage, value)
+            derivery, storage, ..
+        } => process_image_field(ctx, hasher, id, derivery, storage, value)
             .await
             .map(FieldValue::Column)?,
-        schema::FieldType::File { storage, .. } => {
-            process_file_field(ctx, hasher, name, id, storage, value)
-                .await
-                .map(FieldValue::Column)?
-        }
+        schema::FieldType::File {
+            storage, derivery, ..
+        } => process_file_field(ctx, hasher, id, storage, derivery, value)
+            .await
+            .map(FieldValue::Column)?,
         schema::FieldType::Markdown {
             image,
             config,
@@ -572,8 +564,7 @@ async fn process_field<'source, R: backend::RecordBackend + Sync + Send>(
             ..
         } => {
             let (value, hash) =
-                process_markdown_field(ctx, hasher, name, id, storage, config, image, value)
-                    .await?;
+                process_markdown_field(ctx, hasher, id, storage, config, image, value).await?;
             hasher.update(hash.as_bytes());
             value
         }
@@ -611,8 +602,8 @@ impl<'a> Serialize for Frontmatter<'a> {
     }
 }
 
-async fn process_row_impl<'source, R: backend::RecordBackend + Sync + Send>(
-    ctx: &RecordContext<'source, R>,
+async fn process_row_impl<'source>(
+    ctx: &RecordContext<'source>,
     mut raw_fields: serde_json::Map<String, serde_json::Value>,
 ) -> Result<RowNode, Error> {
     let schema = ctx.current_schema();
@@ -677,19 +668,9 @@ async fn process_row_impl<'source, R: backend::RecordBackend + Sync + Send>(
         records: &records,
     };
     let frontmatter = serde_json::to_value(&frontmatter).unwrap();
-    for (name, (document, storage)) in markdowns {
-        let reference = ctx
-            .backend
-            .push_markdown(
-                ctx.table.clone(),
-                name.clone(),
-                &id,
-                &storage,
-                document,
-                frontmatter.clone(),
-            )
-            .map_err(|detail| ctx.error.error(detail))?;
-        fields.insert(name, ColumnValue::Markdown(reference.into()));
+    for (document, storage) in markdowns.into_values() {
+        ctx.backend
+            .push_markdown(&storage, &id, document, frontmatter.clone());
     }
     Ok(RowNode {
         id,
@@ -699,8 +680,8 @@ async fn process_row_impl<'source, R: backend::RecordBackend + Sync + Send>(
     })
 }
 
-fn process_row<'source, 'c, R: backend::RecordBackend + Sync + Send>(
-    ctx: &'c RecordContext<'source, R>,
+fn process_row<'source, 'c>(
+    ctx: &'c RecordContext<'source>,
     fields: serde_json::Map<String, serde_json::Value>,
 ) -> Pin<Box<dyn 'c + Future<Output = Result<RowNode, Error>>>> {
     Box::pin(process_row_impl(ctx, fields))
@@ -732,12 +713,12 @@ fn tree_to_flat_tables(
     }
 }
 
-pub async fn push_rows_from_document<P: AsRef<Path>, R: backend::RecordBackend + Sync + Send>(
+pub async fn push_rows_from_document<P: AsRef<Path>>(
     table: &str,
     mut hasher: blake3::Hasher,
     schema: &schema::TableSchemas,
     syntax: &DocumentSyntax,
-    backend: &R,
+    backend: &backend::Uploads,
     path: P,
 ) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());

@@ -2,8 +2,7 @@ use indexmap::indexmap;
 use std::path::Path;
 
 use crate::{
-    backend::RecordBackend,
-    config,
+    backend, config,
     field::{
         CompoundId,
         markdown::{
@@ -225,14 +224,12 @@ impl<'r> Resolvers<'r> {
 }
 
 impl RichTextDocument {
-    pub async fn resolve<R: RecordBackend>(
+    pub async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        backend: &R,
-        table: &str,
-        column: &str,
+        backend: &backend::Uploads,
         id: &CompoundId,
-        transform: &config::ImageTransform,
+        derivery: &config::ImageDerivery,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,
     ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
@@ -245,13 +242,13 @@ impl RichTextDocument {
         document.for_each_content(|node| link_card_extractor.analyze(node));
 
         let config = image::Config {
-            transform,
+            derivery,
             storage,
             embed_svg_threshold,
         };
 
         let image_resolver = image_extractor
-            .into_resolver(document_path, backend, table, column, id, config)
+            .into_resolver(document_path, backend, id, config)
             .await?;
         let link_card_resolver = link_card_extractor.into_resolver().await;
         let resolvers = Resolvers {

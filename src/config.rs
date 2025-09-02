@@ -1,34 +1,26 @@
-use std::{collections::HashSet, path::PathBuf};
-
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageStorage {
     R2 {
-        zone: String,
         bucket: String,
         prefix: Option<String>,
     },
     Asset {
-        zone: String,
-        remote_prefix: Option<String>,
-        local_dir: PathBuf,
+        dir: String,
     },
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub enum FileStorage {
     R2 {
-        zone: Option<String>,
         bucket: String,
         prefix: Option<String>,
     },
     Asset {
-        zone: String,
-        remote_prefix: Option<String>,
-        local_dir: PathBuf,
+        dir: String,
     },
 }
 
@@ -42,24 +34,33 @@ pub enum ImageFormat {
 }
 
 #[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ImageTransform {
-    Transform {
-        width: u32,
-        format: ImageFormat,
-    },
-    Matrix {
-        widths: HashSet<u32>,
-        formats: HashSet<ImageFormat>,
-        default_format: ImageFormat,
-    },
+pub struct ImageDeriveryVariants {
+    pub width: u32,
+    pub content_type: String,
+    pub query: String,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ImageDerivery {
+    pub endpoint: String,
+    pub query: Option<String>,
+    pub width: Option<u32>,
+    pub format: Option<ImageFormat>,
+    #[serde(default)]
+    pub variants: Vec<ImageDeriveryVariants>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct FileDerivery {
+    pub endpoint: String,
+    pub query: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownImageConfig {
-    pub transform: ImageTransform,
     pub table: String,
     pub storage: ImageStorage,
+    pub derivery: ImageDerivery,
     pub embed_svg_threshold: usize,
 }
 
@@ -121,12 +122,13 @@ pub enum Field {
         #[serde(default)]
         required: bool,
         storage: ImageStorage,
-        transform: ImageTransform,
+        derivery: ImageDerivery,
     },
     File {
         #[serde(default)]
         required: bool,
         storage: FileStorage,
+        derivery: FileDerivery,
     },
     Records {
         #[serde(default)]

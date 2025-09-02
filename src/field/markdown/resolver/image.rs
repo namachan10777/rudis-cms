@@ -4,9 +4,7 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 
 use crate::{
-    ErrorDetail,
-    backend::RecordBackend,
-    config,
+    ErrorDetail, backend, config,
     field::{
         CompoundId, ImageReference,
         markdown::{Node, parser::KeepRaw},
@@ -42,9 +40,9 @@ pub struct ImageResolver {
 }
 
 pub struct Config<'a> {
-    pub(super) transform: &'a config::ImageTransform,
-    pub(super) storage: &'a config::ImageStorage,
     pub(super) embed_svg_threshold: usize,
+    pub(super) derivery: &'a config::ImageDerivery,
+    pub(super) storage: &'a config::ImageStorage,
 }
 
 pub(super) enum ImageResolved {
@@ -53,12 +51,10 @@ pub(super) enum ImageResolved {
 }
 
 impl<'a> ImageSrcExtractor<'a> {
-    pub(super) async fn into_resolver<R: RecordBackend>(
+    pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        backend: &'a R,
-        table: &str,
-        column: &str,
+        uploads: &backend::Uploads,
         id: &CompoundId,
         config: Config<'a>,
     ) -> Result<ImageResolver, ErrorDetail> {
@@ -77,15 +73,14 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let image = backend.push_markdown_image(
-                        table,
-                        column,
-                        id,
-                        config.transform,
+                    let reference = uploads.push_image(
                         config.storage,
-                        image,
-                    )?;
-                    Ok((src.to_owned(), (ImageResolved::Reference(image), hash)))
+                        config.derivery,
+                        id,
+                        image.clone(),
+                        true,
+                    );
+                    Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }
         });

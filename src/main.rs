@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 use indexmap::IndexMap;
-use rudis_cms::{backend, config, record, schema};
+use rudis_cms::{config, record, schema};
 use tracing::{error, info};
 
 #[derive(clap::Subcommand)]
@@ -67,14 +67,14 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             for (name, collection) in config {
                 info!(name, glob = collection.glob, "start");
                 let schema = schema::Schema::tables(&collection)?;
-                let backend = backend::debug::DebugBackend::default();
+                let uploads = rudis_cms::backend::Uploads::default();
                 for path in glob::glob(&collection.glob)? {
                     let tables = record::push_rows_from_document(
                         &collection.table,
                         hasher.clone(),
                         &schema,
                         &collection.syntax,
-                        &backend,
+                        &uploads,
                         path?,
                     )
                     .await?;
@@ -84,6 +84,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                         }
                     }
                 }
+                uploads.collect().await;
             }
             Ok(())
         }

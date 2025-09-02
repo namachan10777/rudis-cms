@@ -15,15 +15,39 @@ blog:
         table: post_images
         embed_svg_threshold: 8192
         storage:
-          type: asset
-          zone: www.namachan10777.dev
-          local_dir: dist/post/image
-          remote_prefix: post/image
-        transform:
-          type: matrix
-          widths: [480, 720, 1080, 1920]
-          formats: [avif]
-          default_format: png
+          type: r2
+          bucket: namachan10777dev
+          prefix: post/images
+        derivery:
+          endpoint: https://www.namachan10777.dev/post/images
+          query: "format=webp"
+          width: 1080
+          format: webp
+          derivatives:
+            - width: 480
+              format: avif
+              query: "width=480&format=avif"
+            - width: 720
+              format: avif
+              query: "width=720&format=avif"
+            - width: 1080
+              format: avif
+              query: "width=1080format=avif"
+            - width: 1920
+              format: avif
+              query: "width=1920&format=avif"
+            - width: 480
+              format: webp
+              query: "width=480&format=webp"
+            - width: 720
+              format: webp
+              query: "width=720&format=webp"
+            - width: 1080
+              format: webp
+              query: "width=1080format=webp"
+            - width: 1920
+              format: webp
+              query: "width=1920&format=webp"
       config: {}
       storage:
         type: kv
@@ -31,14 +55,11 @@ blog:
     og_image:
       type: image
       storage:
-        type: asset
-        zone: www.namachan10777.dev
-        local_dir: dist/post/og
+        type: r2
+        bucket: namachan10777dev
         prefix: post/og
-      transform:
-        type: transform
-        width: 1200
-        format: avif
+      derivery:
+        endpoint: https://www.namachan10777.dev/post/og
     published:
       type: datetime
       index: true

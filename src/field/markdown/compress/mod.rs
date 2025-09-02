@@ -256,24 +256,24 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
             attrs,
             children,
         } => match compress_children(children) {
-            Fragment::Tree(children) => {
+            Fragment::Tree { children } => {
                 out.push(Node::Lazy {
                     tag,
                     attrs,
                     children,
                 });
             }
-            Fragment::Html(content) => out.push(Node::Eager {
+            Fragment::Html { content } => out.push(Node::Eager {
                 tag,
                 attrs,
                 content,
             }),
         },
         ResolverNode::Lazy { keep, children } => match compress_children(children) {
-            Fragment::Tree(children) => {
+            Fragment::Tree { children } => {
                 out.push(Node::KeepLazy { keep, children });
             }
-            Fragment::Html(content) => {
+            Fragment::Html { content } => {
                 out.push(Node::KeepEager { keep, content });
             }
         },
@@ -302,17 +302,19 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
             }
             _ => unreachable!(),
         });
-        Fragment::Html(out_string)
+        Fragment::Html {
+            content: out_string,
+        }
     } else {
-        Fragment::Tree(out)
+        Fragment::Tree { children: out }
     }
 }
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "type")]
 pub enum Fragment {
-    Html(String),
-    Tree(Vec<Node>),
+    Html { content: String },
+    Tree { children: Vec<Node> },
 }
 
 fn eager_to_section(tag: &Name, children: &[ResolverNode]) -> Option<Section> {

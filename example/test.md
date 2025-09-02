@@ -2,6 +2,7 @@
 id: test
 tags: [tech]
 og_image: ./test.jpg
+published: 2025-09-02T19:19:51
 ---
 
 ## This is test page

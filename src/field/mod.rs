@@ -1,9 +1,10 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, path::PathBuf};
 
 use itertools::{EitherOrBoth, Itertools};
 use serde::Serialize;
 
-pub mod config;
+use crate::config;
+
 pub mod markdown;
 pub mod object_loader;
 
@@ -77,7 +78,14 @@ impl CompoundIdPrefix {
 }
 
 #[derive(Clone, Serialize, Debug, Hash)]
-pub struct ImageVariantLocation {
+pub enum StoragePointer {
+    R2 { bucket: String, key: String },
+    Asset { path: PathBuf },
+    Kv { namespace: String, key: String },
+}
+
+#[derive(Clone, Serialize, Debug, Hash)]
+pub struct ImageVariantReference {
     pub url: url::Url,
     pub width: u32,
     pub height: u32,
@@ -90,9 +98,57 @@ pub struct ImageReference {
     pub width: u32,
     pub height: u32,
     pub content_type: String,
-    pub hash: blake3::Hash,
     pub blurhash: Option<String>,
-    pub variants: Vec<ImageVariantLocation>,
+    pub variants: Vec<ImageVariantReference>,
+    pub pointer: StoragePointer,
+    pub hash: blake3::Hash,
+}
+
+impl ImageReference {
+    pub fn build(
+        derivery: &config::ImageDerivery,
+        compound_id: &CompoundId,
+        image: object_loader::Image,
+        distinguish_by_image_id: bool,
+        pointer: StoragePointer,
+    ) -> Self {
+        let endpoint = &derivery.endpoint;
+        let derived_id = &image.derived_id;
+        let url: url::Url = if distinguish_by_image_id {
+            format!("{endpoint}/{compound_id}/{derived_id}")
+                .parse()
+                .unwrap()
+        } else {
+            format!("{endpoint}/{compound_id}").parse().unwrap()
+        };
+        let (width, height) = image.body.dimensions();
+        let variants = derivery
+            .variants
+            .iter()
+            .map(|variant| {
+                let mut url = url.clone();
+                url.set_query(Some(&variant.query));
+                let (width, height) = image.body.dimensions();
+                let height = ((variant.width as f64 / width as f64) * height as f64) as u32;
+                ImageVariantReference {
+                    url,
+                    width: variant.width,
+                    height,
+                    content_type: variant.content_type.clone(),
+                }
+            })
+            .collect();
+        Self {
+            url,
+            width,
+            height,
+            content_type: image.content_type,
+            blurhash: None,
+            pointer,
+            hash: image.hash,
+            variants,
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Hash)]
@@ -100,14 +156,39 @@ pub struct FileReference {
     pub url: url::Url,
     pub size: u64,
     pub content_type: String,
+    pub pointer: StoragePointer,
     pub hash: blake3::Hash,
+}
+
+impl FileReference {
+    pub fn build(
+        derivery: &config::FileDerivery,
+        id: &CompoundId,
+        file: &object_loader::Object,
+        pointer: StoragePointer,
+    ) -> Self {
+        let mut url: url::Url = format!("{}/{id}", derivery.endpoint).parse().unwrap();
+        url.set_query(derivery.query.as_ref().map(|s| s.as_str()));
+        FileReference {
+            url,
+            size: file.body.len() as _,
+            content_type: file.content_type.clone(),
+            pointer,
+            hash: file.hash,
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Hash)]
 #[serde(tag = "type")]
 pub enum MarkdownReference {
-    Inline { content: serde_json::Value },
-    Kv { key: String },
+    Inline {
+        content: serde_json::Value,
+    },
+    Kv {
+        key: String,
+        pointer: StoragePointer,
+    },
 }
 
 #[derive(Debug, Hash)]
