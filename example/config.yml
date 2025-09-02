@@ -18,36 +18,6 @@ blog:
           type: r2
           bucket: namachan10777dev
           prefix: post/images
-        derivery:
-          endpoint: https://www.namachan10777.dev/post/images
-          query: "format=webp"
-          width: 1080
-          format: webp
-          derivatives:
-            - width: 480
-              format: avif
-              query: "width=480&format=avif"
-            - width: 720
-              format: avif
-              query: "width=720&format=avif"
-            - width: 1080
-              format: avif
-              query: "width=1080format=avif"
-            - width: 1920
-              format: avif
-              query: "width=1920&format=avif"
-            - width: 480
-              format: webp
-              query: "width=480&format=webp"
-            - width: 720
-              format: webp
-              query: "width=720&format=webp"
-            - width: 1080
-              format: webp
-              query: "width=1080format=webp"
-            - width: 1920
-              format: webp
-              query: "width=1920&format=webp"
       config: {}
       storage:
         type: kv
@@ -58,8 +28,6 @@ blog:
         type: r2
         bucket: namachan10777dev
         prefix: post/og
-      derivery:
-        endpoint: https://www.namachan10777.dev/post/og
     published:
       type: datetime
       index: true

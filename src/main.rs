@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 use indexmap::IndexMap;
-use rudis_cms::{config, record, schema};
+use rudis_cms::{
+    config, record, schema,
+    sql::{DDL, INSERT, create_liquid_context},
+};
 use tracing::{error, info};
 
 #[derive(clap::Subcommand)]
@@ -31,8 +34,12 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
+                let liquid_ctx = create_liquid_context(&schema);
                 println!("Table: {}", name);
-                println!("{}", rudis_cms::sql::render_ddl(schema));
+                println!("{}", DDL.render(&liquid_ctx).unwrap());
+
+                println!("Insert query");
+                println!("{}", INSERT.render(&liquid_ctx).unwrap());
             }
             Ok(())
         }
@@ -46,8 +53,8 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             };
             for (_, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
-                let ddl = rudis_cms::sql::render_ddl(schema);
-                conn.execute_batch(&ddl)?;
+                let liquid_ctx = create_liquid_context(&schema);
+                conn.execute_batch(&DDL.render(&liquid_ctx).unwrap())?;
             }
             Ok(())
         }

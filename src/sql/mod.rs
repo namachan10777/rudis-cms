@@ -62,15 +62,22 @@ fn is_required(field: &schema::FieldType) -> bool {
     }
 }
 
-const DDL_TEMPLATE: LazyLock<liquid::Template> = LazyLock::new(|| {
-    liquid::ParserBuilder::with_stdlib()
-        .build()
-        .unwrap()
+const PARSER: LazyLock<liquid::Parser> =
+    LazyLock::new(|| liquid::ParserBuilder::with_stdlib().build().unwrap());
+
+pub const DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
+    PARSER
         .parse(include_str!("./templates/ddl.sql.liquid"))
         .unwrap()
 });
 
-pub fn render_ddl(schema: schema::TableSchemas) -> String {
+pub const INSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
+    PARSER
+        .parse(include_str!("./templates/insert.sql.liquid"))
+        .unwrap()
+});
+
+pub fn create_liquid_context(schema: &schema::TableSchemas) -> liquid::Object {
     let mut tables = schema
         .iter()
         .map(|(table, schema)| {
@@ -79,6 +86,7 @@ pub fn render_ddl(schema: schema::TableSchemas) -> String {
                     "name": id,
                     "type": "TEXT",
                     "not_null": true,
+                    "is_primary_key": true,
                 })
             });
             let columns = schema.fields.iter().filter_map(|(name, field)| {
@@ -87,6 +95,7 @@ pub fn render_ddl(schema: schema::TableSchemas) -> String {
                     "name": name,
                     "type": ty,
                     "not_null": is_required(field),
+                    "is_primary_key": matches!(field, schema::FieldType::Id),
                 }))
             });
             let columns = inherit_id_columns.chain(columns).collect::<Vec<_>>();
@@ -123,8 +132,7 @@ pub fn render_ddl(schema: schema::TableSchemas) -> String {
         })
         .collect::<Vec<_>>();
     tables.reverse();
-    let ctx = liquid::object!({
+    liquid::object!({
         "tables": tables,
-    });
-    DDL_TEMPLATE.render(&ctx).unwrap()
+    })
 }

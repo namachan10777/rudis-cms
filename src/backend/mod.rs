@@ -22,6 +22,7 @@ pub enum MarkdownStorage {
 pub struct KvObject {
     pub namespace: String,
     pub key: String,
+    #[dbg(skip)]
     pub content: String,
 }
 
@@ -43,7 +44,6 @@ pub struct AssetObject {
 
 #[derive(Default)]
 pub struct Uploads {
-    local_mock: bool,
     kv: crossbeam::queue::SegQueue<KvObject>,
     r2: crossbeam::queue::SegQueue<R2Object>,
     asset: crossbeam::queue::SegQueue<AssetObject>,
@@ -172,11 +172,20 @@ impl Uploads {
 
     pub async fn collect(self) {
         trace!("collect all uploads");
-        let kv = self.kv.into_iter().collect::<Vec<_>>();
-        let r2 = self.r2.into_iter().collect::<Vec<_>>();
-        let asset = self.asset.into_iter().collect::<Vec<_>>();
-        dbg!(kv);
-        dbg!(r2);
-        dbg!(asset);
+        let kv = self
+            .kv
+            .into_iter()
+            .inspect(|obj| trace!(?obj, "kv"))
+            .collect::<Vec<_>>();
+        let r2 = self
+            .r2
+            .into_iter()
+            .inspect(|obj| trace!(?obj, "r2"))
+            .collect::<Vec<_>>();
+        let asset = self
+            .asset
+            .into_iter()
+            .inspect(|obj| trace!(?obj, "asset"))
+            .collect::<Vec<_>>();
     }
 }
