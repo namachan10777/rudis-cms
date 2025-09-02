@@ -5,7 +5,7 @@ VALUES (
     {%- for column in table.columns %}
         value->>'{{ column.name }}'{% unless forloop.last %},{% endunless %}
     {%- endfor %}
-    FROM json_each(?1)
+    FROM json_each(?1->>'{{ table.name }}')
 )
 ON CONFLICT ({{ table.primary_key | join: ", " }})
 DO UPDATE SET

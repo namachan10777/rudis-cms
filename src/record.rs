@@ -164,7 +164,7 @@ struct RecordContext<'c> {
     compound_id_prefix: CompoundIdPrefix,
     error: ErrorContext,
     document_path: PathBuf,
-    backend: &'c backend::Uploads,
+    backend: &'c backend::UploadCollector,
 }
 
 impl<'c> Clone for RecordContext<'c> {
@@ -713,7 +713,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>>(
     mut hasher: blake3::Hasher,
     schema: &schema::TableSchemas,
     syntax: &DocumentSyntax,
-    backend: &backend::Uploads,
+    backend: &backend::UploadCollector,
     path: P,
 ) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());

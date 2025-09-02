@@ -217,7 +217,7 @@ impl RichTextDocument {
     pub async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        backend: &backend::Uploads,
+        backend: &backend::UploadCollector,
         id: &CompoundId,
         storage: &config::ImageStorage,
         embed_svg_threshold: usize,

@@ -77,8 +77,6 @@ pub(crate) enum FieldType {
     },
 }
 
-impl FieldType {}
-
 impl Schema {
     fn add_table(
         tables: &mut IndexMap<String, Arc<Self>>,

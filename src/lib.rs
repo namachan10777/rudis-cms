@@ -80,4 +80,6 @@ pub enum ErrorDetail {
     Load(object_loader::Error),
     #[error("Invalid parent ID names")]
     InvalidParentIdNames,
+    #[error("SQL Error: {0}")]
+    Query(rusqlite::Error),
 }

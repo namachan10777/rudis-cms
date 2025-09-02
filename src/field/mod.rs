@@ -82,6 +82,33 @@ pub enum StoragePointer {
     Kv { namespace: String, key: String },
 }
 
+impl StoragePointer {
+    pub(crate) fn generate_consistent_hash(&self, base_hash: blake3::Hash) -> blake3::Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(base_hash.as_bytes());
+        self.update_hash(&mut hasher);
+        hasher.finalize()
+    }
+    pub fn update_hash(&self, hasher: &mut blake3::Hasher) {
+        match self {
+            StoragePointer::R2 { bucket, key } => {
+                hasher.update(b"r2");
+                hasher.update(bucket.as_bytes());
+                hasher.update(key.as_bytes());
+            }
+            StoragePointer::Asset { path } => {
+                hasher.update(b"asset");
+                hasher.update(path.to_string_lossy().as_bytes());
+            }
+            StoragePointer::Kv { namespace, key } => {
+                hasher.update(b"kv");
+                hasher.update(namespace.as_bytes());
+                hasher.update(key.as_bytes());
+            }
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Debug, Hash)]
 pub struct ImageReference {
     pub width: u32,
@@ -93,7 +120,7 @@ pub struct ImageReference {
 }
 
 impl ImageReference {
-    pub fn build(image: object_loader::Image, pointer: StoragePointer) -> Self {
+    pub fn build(image: object_loader::Image, hash: blake3::Hash, pointer: StoragePointer) -> Self {
         let (width, height) = image.body.dimensions();
         Self {
             width,
@@ -101,7 +128,7 @@ impl ImageReference {
             content_type: image.content_type,
             blurhash: None,
             pointer,
-            hash: image.hash,
+            hash,
         }
     }
 }
@@ -115,12 +142,16 @@ pub struct FileReference {
 }
 
 impl FileReference {
-    pub fn build(file: &object_loader::Object, pointer: StoragePointer) -> Self {
+    pub fn build(
+        file: &object_loader::Object,
+        hash: blake3::Hash,
+        pointer: StoragePointer,
+    ) -> Self {
         FileReference {
             size: file.body.len() as _,
             content_type: file.content_type.clone(),
             pointer,
-            hash: file.hash,
+            hash,
         }
     }
 }
@@ -133,8 +164,19 @@ pub enum MarkdownReference {
     },
     Kv {
         key: String,
+        hash: blake3::Hash,
         pointer: StoragePointer,
     },
+}
+
+impl MarkdownReference {
+    pub(crate) fn build(key: &str, hash: blake3::Hash, pointer: StoragePointer) -> Self {
+        MarkdownReference::Kv {
+            key: key.to_string(),
+            hash,
+            pointer,
+        }
+    }
 }
 
 #[derive(Debug, Hash)]

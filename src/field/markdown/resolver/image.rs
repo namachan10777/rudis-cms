@@ -53,7 +53,7 @@ impl<'a> ImageSrcExtractor<'a> {
     pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        uploads: &backend::Uploads,
+        uploads: &backend::UploadCollector,
         id: &CompoundId,
         config: Config<'a>,
     ) -> Result<ImageResolver, ErrorDetail> {

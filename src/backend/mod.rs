@@ -1,4 +1,5 @@
 use derive_debug::Dbg;
+use indexmap::IndexMap;
 use tracing::trace;
 
 use crate::{
@@ -19,7 +20,7 @@ pub enum MarkdownStorage {
 }
 
 #[derive(Dbg)]
-pub struct KvObject {
+pub struct KvUpload {
     pub namespace: String,
     pub key: String,
     #[dbg(skip)]
@@ -27,7 +28,7 @@ pub struct KvObject {
 }
 
 #[derive(Dbg)]
-pub struct R2Object {
+pub struct R2Upload {
     pub bucket: String,
     pub key: String,
     #[dbg(skip)]
@@ -36,20 +37,26 @@ pub struct R2Object {
 }
 
 #[derive(Dbg)]
-pub struct AssetObject {
+pub struct AssetUpload {
     pub path: PathBuf,
     #[dbg(skip)]
     pub body: Box<[u8]>,
 }
 
 #[derive(Default)]
-pub struct Uploads {
-    kv: crossbeam::queue::SegQueue<KvObject>,
-    r2: crossbeam::queue::SegQueue<R2Object>,
-    asset: crossbeam::queue::SegQueue<AssetObject>,
+pub struct UploadCollector {
+    kv: crossbeam::queue::SegQueue<(blake3::Hash, KvUpload)>,
+    r2: crossbeam::queue::SegQueue<(blake3::Hash, R2Upload)>,
+    asset: crossbeam::queue::SegQueue<(blake3::Hash, AssetUpload)>,
 }
 
-impl Uploads {
+pub struct Uploads {
+    pub r2: IndexMap<blake3::Hash, R2Upload>,
+    pub kv: IndexMap<blake3::Hash, KvUpload>,
+    pub asset: IndexMap<blake3::Hash, AssetUpload>,
+}
+
+impl UploadCollector {
     pub(crate) fn push_markdown(
         &self,
         storage: &MarkdownStorage,
@@ -66,18 +73,27 @@ impl Uploads {
                 };
                 let content =
                     serde_json::to_string(&serde_json::json!({ "frontmatter": frontmatter, "root": document.root, "footnotes": document.footnotes, "sections": document.sections })).unwrap();
-                self.kv.push(KvObject {
+                let pointer = StoragePointer::Kv {
                     namespace: namespace.clone(),
                     key: key.clone(),
-                    content,
-                });
-                MarkdownReference::Kv {
-                    key: key.clone(),
-                    pointer: StoragePointer::Kv {
+                };
+                let hash = pointer.generate_consistent_hash(blake3::hash(content.as_bytes()));
+                self.kv.push((
+                    hash,
+                    KvUpload {
                         namespace: namespace.clone(),
-                        key,
+                        key: key.clone(),
+                        content: content.clone(),
                     },
-                }
+                ));
+                MarkdownReference::build(
+                    &key,
+                    hash,
+                    StoragePointer::Kv {
+                        namespace: namespace.clone(),
+                        key: key.clone(),
+                    },
+                )
             }
         }
     }
@@ -99,17 +115,21 @@ impl Uploads {
                 if distinguish_by_image_id {
                     write!(key, "/{}", image.derived_id).unwrap();
                 }
-                self.r2.push(R2Object {
-                    bucket: bucket.clone(),
-                    key: key.clone(),
-                    body: image.original.clone(),
-                    content_type: image.content_type.clone(),
-                });
                 let pointer = StoragePointer::R2 {
                     bucket: bucket.clone(),
                     key: key.clone(),
                 };
-                ImageReference::build(image, pointer)
+                let hash = pointer.generate_consistent_hash(image.hash);
+                self.r2.push((
+                    hash,
+                    R2Upload {
+                        bucket: bucket.clone(),
+                        key: key.clone(),
+                        body: image.original.clone(),
+                        content_type: image.content_type.clone(),
+                    },
+                ));
+                ImageReference::build(image, hash, pointer)
             }
             config::ImageStorage::Asset { dir } => {
                 let path = PathBuf::from(dir);
@@ -121,12 +141,17 @@ impl Uploads {
                     path
                 };
 
-                self.asset.push(AssetObject {
-                    path: path.clone(),
-                    body: image.original.clone(),
-                });
-                let pointer = StoragePointer::Asset { path };
-                ImageReference::build(image, pointer)
+                let pointer = StoragePointer::Asset { path: path.clone() };
+                let hash = pointer.generate_consistent_hash(image.hash);
+
+                self.asset.push((
+                    hash,
+                    AssetUpload {
+                        path: path.clone(),
+                        body: image.original.clone(),
+                    },
+                ));
+                ImageReference::build(image, hash, pointer)
             }
         }
     }
@@ -144,48 +169,57 @@ impl Uploads {
                 } else {
                     id.to_string()
                 };
-                self.r2.push(R2Object {
-                    bucket: bucket.clone(),
-                    key: key.clone(),
-                    body: file.body.clone(),
-                    content_type: file.content_type.clone(),
-                });
                 let pointer = StoragePointer::R2 {
                     bucket: bucket.clone(),
                     key: key.clone(),
                 };
-                FileReference::build(&file, pointer)
+                let hash = pointer.generate_consistent_hash(file.hash);
+                self.r2.push((
+                    hash,
+                    R2Upload {
+                        bucket: bucket.clone(),
+                        key: key.clone(),
+                        body: file.body.clone(),
+                        content_type: file.content_type.clone(),
+                    },
+                ));
+                FileReference::build(&file, hash, pointer)
             }
             config::FileStorage::Asset { dir } => {
                 let path = PathBuf::from(dir);
                 let path = path.join(id.to_string());
 
-                self.asset.push(AssetObject {
-                    path: path.clone(),
-                    body: file.body.clone(),
-                });
-                let pointer = StoragePointer::Asset { path };
-                FileReference::build(&file, pointer)
+                let pointer = StoragePointer::Asset { path: path.clone() };
+                let hash = pointer.generate_consistent_hash(file.hash);
+                self.asset.push((
+                    hash,
+                    AssetUpload {
+                        path: path.clone(),
+                        body: file.body.clone(),
+                    },
+                ));
+                FileReference::build(&file, hash, pointer)
             }
         }
     }
 
-    pub async fn collect(self) {
+    pub async fn collect(self) -> Uploads {
         trace!("collect all uploads");
         let kv = self
             .kv
             .into_iter()
             .inspect(|obj| trace!(?obj, "kv"))
-            .collect::<Vec<_>>();
+            .collect::<IndexMap<_, _>>();
         let r2 = self
             .r2
             .into_iter()
             .inspect(|obj| trace!(?obj, "r2"))
-            .collect::<Vec<_>>();
+            .collect::<IndexMap<_, _>>();
         let asset = self
             .asset
             .into_iter()
             .inspect(|obj| trace!(?obj, "asset"))
-            .collect::<Vec<_>>();
+            .collect::<IndexMap<_, _>>();
+        Uploads { kv, r2, asset }
     }
 }

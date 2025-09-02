@@ -1,0 +1,9 @@
+{% for column in object_columns %}
+{% unless forloop.first %}
+UNION ALL
+{% endunless %}
+SELECT
+    {{ column.name }}->>'hash' AS hash,
+    {{ column.name }}->>'pointer' AS storage
+FROM {{ column.table }}
+{%- endfor %};

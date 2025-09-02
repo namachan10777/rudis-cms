@@ -5,7 +5,7 @@ use clap::Parser;
 use indexmap::IndexMap;
 use rudis_cms::{
     config, record, schema,
-    sql::{DDL, INSERT, create_liquid_context},
+    sql::{DDL, create_ctx},
 };
 use tracing::{error, info};
 
@@ -34,12 +34,9 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
-                let liquid_ctx = create_liquid_context(&schema);
-                println!("Table: {}", name);
+                let liquid_ctx = create_ctx(&schema);
+                println!("-- Table: {}", name);
                 println!("{}", DDL.render(&liquid_ctx).unwrap());
-
-                println!("Insert query");
-                println!("{}", INSERT.render(&liquid_ctx).unwrap());
             }
             Ok(())
         }
@@ -53,7 +50,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             };
             for (_, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
-                let liquid_ctx = create_liquid_context(&schema);
+                let liquid_ctx = create_ctx(&schema);
                 conn.execute_batch(&DDL.render(&liquid_ctx).unwrap())?;
             }
             Ok(())
@@ -74,7 +71,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             for (name, collection) in config {
                 info!(name, glob = collection.glob, "start");
                 let schema = schema::Schema::tables(&collection)?;
-                let uploads = rudis_cms::backend::Uploads::default();
+                let uploads = rudis_cms::backend::UploadCollector::default();
                 for path in glob::glob(&collection.glob)? {
                     let tables = record::push_rows_from_document(
                         &collection.table,
