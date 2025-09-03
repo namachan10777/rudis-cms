@@ -6,4 +6,5 @@ SELECT
     {{ column.name }}->>'hash' AS hash,
     {{ column.name }}->>'pointer' AS storage
 FROM {{ column.table }}
+WHERE {{ column.name }} IS NOT NULL AND {{ column.name }}->>'hash' IS NOT NULL
 {%- endfor %};

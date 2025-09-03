@@ -77,6 +77,7 @@ impl CompoundIdPrefix {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum StoragePointer {
     R2 { bucket: String, key: String },
     Asset { path: PathBuf },
@@ -117,6 +118,7 @@ pub struct ImageReference {
     pub content_type: String,
     pub blurhash: Option<String>,
     pub pointer: StoragePointer,
+    #[serde(serialize_with = "serialize_hash")]
     pub hash: blake3::Hash,
 }
 
@@ -134,11 +136,16 @@ impl ImageReference {
     }
 }
 
+fn serialize_hash<S: serde::Serializer>(contact: &blake3::Hash, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&contact.to_string())
+}
+
 #[derive(Serialize, Debug, Hash)]
 pub struct FileReference {
     pub size: u64,
     pub content_type: String,
     pub pointer: StoragePointer,
+    #[serde(serialize_with = "serialize_hash")]
     pub hash: blake3::Hash,
 }
 
@@ -158,13 +165,16 @@ impl FileReference {
 }
 
 #[derive(Serialize, Debug, Hash)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MarkdownReference {
     Inline {
         content: serde_json::Value,
+        #[serde(serialize_with = "serialize_hash")]
+        hash: blake3::Hash,
     },
     Kv {
         key: String,
+        #[serde(serialize_with = "serialize_hash")]
         hash: blake3::Hash,
         pointer: StoragePointer,
     },

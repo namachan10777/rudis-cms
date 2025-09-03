@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::LazyLock};
 
 use indexmap::IndexMap;
-use tracing::{debug, trace};
+use tracing::debug;
 
 use crate::{
     field::StoragePointer,
@@ -82,13 +82,13 @@ fn is_required(field: &schema::FieldType) -> bool {
 const PARSER: LazyLock<liquid::Parser> =
     LazyLock::new(|| liquid::ParserBuilder::with_stdlib().build().unwrap());
 
-pub const DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub const SQL_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
     PARSER
         .parse(include_str!("./templates/ddl.sql.liquid"))
         .unwrap()
 });
 
-fn create_ctx_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
     schema.inherit_ids.iter().map(|id| {
         liquid::object!({
             "name": id,
@@ -99,7 +99,7 @@ fn create_ctx_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item 
     })
 }
 
-fn create_ctx_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_data_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         let ty = sqlite_type_name(field)?;
         if matches!(field, schema::FieldType::Id) {
@@ -114,7 +114,7 @@ fn create_ctx_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::O
     })
 }
 
-fn create_ctx_id_column(schema: &schema::Schema) -> liquid::Object {
+fn liqui_id_column(schema: &schema::Schema) -> liquid::Object {
     liquid::object!({
         "name": schema.id_name,
         "type": "TEXT",
@@ -123,9 +123,7 @@ fn create_ctx_id_column(schema: &schema::Schema) -> liquid::Object {
     })
 }
 
-fn create_ctx_internal_column_indexes(
-    schema: &schema::Schema,
-) -> impl Iterator<Item = liquid::Object> {
+fn liquid_internal_column_indexes(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         if to_be_indexed(field) {
             Some(liquid::object!({
@@ -138,12 +136,15 @@ fn create_ctx_internal_column_indexes(
     })
 }
 
-fn create_ctx_object_hash_indexes(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_object_column_hash_indexes(
+    schema: &schema::Schema,
+) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         if is_object_field(field) {
             Some(liquid::object!({
                 "name": name,
-                "index": format!("{name}->>'hash'")
+                "index": format!("{name}->>'hash'"),
+                "where": if is_required(field) { Some("IS NOT NULL") } else { None },
             }))
         } else {
             None
@@ -151,7 +152,7 @@ fn create_ctx_object_hash_indexes(schema: &schema::Schema) -> impl Iterator<Item
     })
 }
 
-fn create_ctx_parent(schema: &schema::Schema) -> Option<liquid::Object> {
+fn liquid_parent_table(schema: &schema::Schema) -> Option<liquid::Object> {
     schema.parent.as_ref().map(|parent| {
         liquid::object!({
             "table": parent.name,
@@ -161,13 +162,13 @@ fn create_ctx_parent(schema: &schema::Schema) -> Option<liquid::Object> {
     })
 }
 
-fn create_ctx_primary_key(schema: &schema::Schema) -> Vec<String> {
+fn liquid_primary_key(schema: &schema::Schema) -> Vec<String> {
     let mut primary_key = schema.inherit_ids.clone();
     primary_key.push(schema.id_name.clone());
     primary_key
 }
 
-fn create_ctx_object_columns(schema: &schema::TableSchemas) -> Vec<liquid::Object> {
+fn liquid_object_columns(schema: &schema::TableSchemas) -> Vec<liquid::Object> {
     schema
         .iter()
         .flat_map(|(table, schema)| {
@@ -185,17 +186,18 @@ fn create_ctx_object_columns(schema: &schema::TableSchemas) -> Vec<liquid::Objec
         .collect()
 }
 
-fn create_ctx_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::Object> {
+fn liquid_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::Object> {
     let mut tables = schema
             .iter()
             .map(|(table, schema)| {
                 let ctx = liquid::object!({
                     "name": table,
-                    "columns": create_ctx_inherit_id_columns(schema).chain(std::iter::once(create_ctx_id_column(schema))).chain(create_ctx_columns(schema)).collect::<Vec<_>>(),
-                    "data_columns": create_ctx_columns(schema).collect::<Vec<_>>(),
-                    "indexes": create_ctx_internal_column_indexes(schema).chain(create_ctx_object_hash_indexes(schema)).collect::<Vec<_>>(),
-                    "parent": create_ctx_parent(schema),
-                    "primary_key": create_ctx_primary_key(schema),
+                    "id_name": schema.id_name,
+                    "columns": liquid_inherit_id_columns(schema).chain(std::iter::once(liqui_id_column(schema))).chain(liquid_data_columns(schema)).collect::<Vec<_>>(),
+                    "data_columns": liquid_data_columns(schema).collect::<Vec<_>>(),
+                    "indexes": liquid_internal_column_indexes(schema).chain(liquid_object_column_hash_indexes(schema)).collect::<Vec<_>>(),
+                    "parent": liquid_parent_table(schema),
+                    "primary_key": liquid_primary_key(schema),
                 });
                 (table.clone(), ctx)
             })
@@ -204,20 +206,20 @@ fn create_ctx_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::
     tables
 }
 
-pub fn create_ctx(schema: &schema::TableSchemas) -> liquid::Object {
+pub fn liquid_default_context(schema: &schema::TableSchemas) -> liquid::Object {
     liquid::object!({
-        "tables": create_ctx_tables(schema).into_values().collect::<Vec<_>>(),
-        "object_columns": create_ctx_object_columns(schema),
+        "tables": liquid_tables(schema).into_values().collect::<Vec<_>>(),
+        "object_columns": liquid_object_columns(schema),
     })
 }
 
-const FETCH_ALL: LazyLock<liquid::Template> = LazyLock::new(|| {
+const SQL_FETCH_ALL: LazyLock<liquid::Template> = LazyLock::new(|| {
     PARSER
         .parse(include_str!("./templates/fetch_all_hash.liquid"))
         .unwrap()
 });
 
-const UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
+const SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
     PARSER
         .parse(include_str!("./templates/upsert.liquid"))
         .unwrap()
@@ -237,7 +239,7 @@ impl From<rusqlite::Error> for Error {
     }
 }
 
-async fn fetch_all_hashes(
+async fn fetch_object_hashes(
     conn: &rusqlite::Connection,
     ctx: &liquid::Object,
 ) -> Result<IndexMap<blake3::Hash, String>, Error> {
@@ -245,7 +247,8 @@ async fn fetch_all_hashes(
         storage: String,
         hash: String,
     }
-    let mut stmt = conn.prepare(&FETCH_ALL.render(ctx).unwrap())?;
+    println!("{}", SQL_FETCH_ALL.render(ctx).unwrap());
+    let mut stmt = conn.prepare(&SQL_FETCH_ALL.render(ctx).unwrap())?;
     let rows = stmt
         .query_map([], |row| {
             Ok(Row {
@@ -271,13 +274,13 @@ async fn upsert(
     tables: &record::Tables,
 ) -> Result<(), Error> {
     let upsert_ctx = liquid::object!({
-        "tables": create_ctx_tables(schema).into_iter().filter_map(|(table, schema)| if tables.contains_key(&table) {
+        "tables": liquid_tables(schema).into_iter().filter_map(|(table, schema)| if tables.contains_key(&table) {
             Some(schema)
         } else {
             None
         }).collect::<Vec<_>>()
     });
-    let statements = UPSERT.render(&upsert_ctx).unwrap();
+    let statements = SQL_UPSERT.render(&upsert_ctx).unwrap();
     for statement in statements.split(";") {
         if statement.trim().is_empty() {
             continue;
@@ -329,17 +332,17 @@ pub async fn batch(
     mut upload_candidates: Uploads,
     backend: &impl StorageBackend,
 ) -> Result<(), Error> {
-    let base_ctx = create_ctx(schema);
-    let present_hashes = fetch_all_hashes(conn, &base_ctx).await?;
+    let base_ctx = liquid_default_context(schema);
+    let object_hashes_present = fetch_object_hashes(conn, &base_ctx).await?;
     upload_candidates
         .r2
-        .retain(|k, _| !present_hashes.contains_key(k));
+        .retain(|k, _| !object_hashes_present.contains_key(k));
     upload_candidates
         .kv
-        .retain(|k, _| !present_hashes.contains_key(k));
+        .retain(|k, _| !object_hashes_present.contains_key(k));
     upload_candidates
         .asset
-        .retain(|k, _| !present_hashes.contains_key(k));
+        .retain(|k, _| !object_hashes_present.contains_key(k));
     debug!("upload filtered");
     let Uploads { r2, kv, asset } = upload_candidates;
     backend
@@ -348,12 +351,13 @@ pub async fn batch(
     debug!("upload finished");
     upsert(conn, schema, &tables).await?;
     debug!("upsert finished");
-    let after_all_hashes = fetch_all_hashes(conn, &base_ctx).await?;
+    let object_hashes_after = fetch_object_hashes(conn, &base_ctx).await?;
+    debug!("all removed objects identified");
     let mut r2_deletes = Vec::new();
     let mut kv_deletes = Vec::new();
     let mut asset_deletes = Vec::new();
-    for (hash, storage) in present_hashes {
-        if after_all_hashes.contains_key(&hash) {
+    for (hash, storage) in object_hashes_present {
+        if object_hashes_after.contains_key(&hash) {
             continue;
         }
         let Ok(storage) = serde_json::from_str::<StoragePointer>(&storage) else {

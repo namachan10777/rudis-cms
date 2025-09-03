@@ -634,10 +634,12 @@ async fn process_row_impl<'source>(
                 document,
                 storage: config::MarkdownStorage::Inline,
             }) => {
+                let content = serde_json::to_value(&document).unwrap();
                 fields.insert(
                     name.clone(),
                     ColumnValue::Markdown(field::MarkdownReference::Inline {
-                        content: serde_json::to_value(&document).unwrap(),
+                        hash: blake3::hash(serde_json::to_string(&content).unwrap().as_bytes()),
+                        content,
                     }),
                 );
             }

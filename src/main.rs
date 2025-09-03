@@ -6,7 +6,7 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 use rudis_cms::{
     config, record, schema,
-    sql::{DDL, create_ctx},
+    sql::{SQL_DDL, liquid_default_context},
 };
 use tracing::{error, info, trace};
 
@@ -56,9 +56,9 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
-                let liquid_ctx = create_ctx(&schema);
+                let liquid_ctx = liquid_default_context(&schema);
                 println!("-- Table: {}", name);
-                println!("{}", DDL.render(&liquid_ctx).unwrap());
+                println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());
             }
             Ok(())
         }
@@ -74,8 +74,8 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             };
             for (_, collection) in &config {
                 let schema = schema::Schema::tables(&collection)?;
-                let liquid_ctx = create_ctx(&schema);
-                conn.execute_batch(&DDL.render(&liquid_ctx).unwrap())?;
+                let liquid_ctx = liquid_default_context(&schema);
+                conn.execute_batch(&SQL_DDL.render(&liquid_ctx).unwrap())?;
                 let uploads = rudis_cms::field::upload::UploadCollector::default();
                 let mut tables: record::Tables = IndexMap::new();
                 let tasks = glob::glob(&collection.glob)?.into_iter().map(|path| async {
