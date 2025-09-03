@@ -15,7 +15,7 @@ anyhow = "1"
 blake3 = { version = "1.8", features = ["serde"] }
 blocking = "1.6"
 clap = { version = "4.5", features = ["derive", "env"] }
-futures = { version = "0.3", default-features = false, features = ["std"] }
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
 glob = "0.3"
 image = { version = "0.25", features = ["serde"] }
 katex = "0.4"
@@ -25,10 +25,6 @@ roxmltree = "0.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
-smol = "2"
-surf = { version = "2", default-features = false, features = [
-    "h1-client-rustls",
-] }
 syntect = "5"
 thiserror = "2"
 tracing = { version = "0.1.41", features = ["valuable", "async-await"] }
@@ -43,7 +39,7 @@ maplit = "1"
 toml = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
-url = "2"
+url = { version = "2", features = ["serde"] }
 scraper = "0.23"
 derive-debug = "0.1"
 html_parser = "0.7"
@@ -59,3 +55,5 @@ mime_guess = "2"
 mime = "0.3"
 bincode = { version = "2", features = ["serde"] }
 crossbeam = { version = "0.8", features = ["crossbeam-queue"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
+reqwest = { version = "0.12", features = ["json"] }

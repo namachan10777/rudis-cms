@@ -79,15 +79,13 @@ async fn load_image(src: &str) -> Option<LinkCardImage> {
 }
 
 async fn resolve_link_card(link: &str) -> Result<LinkCard, anyhow::Error> {
-    let mut response = surf::get(link)
+    let response = reqwest::Client::new()
+        .get(link)
         .header("Accept", "text/html")
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let html = response
-        .body_string()
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let html = response.text().await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let doc = scraper::Html::parse_document(&html);
     let og_selector = scraper::Selector::parse(r#"meta[property^="og:"]"#).unwrap();

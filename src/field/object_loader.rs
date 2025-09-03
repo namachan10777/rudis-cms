@@ -13,7 +13,10 @@ use crate::field::markdown::{
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("failed to fetch remote object ({url}): {error}")]
-    FetchRemote { error: surf::Error, url: url::Url },
+    FetchRemote {
+        error: reqwest::Error,
+        url: url::Url,
+    },
     #[error("failed to decode data URL ({url}): {error}")]
     DecodeDataUrl {
         error: data_url::forgiving_base64::InvalidBase64,
@@ -49,26 +52,28 @@ pub struct Object {
 }
 
 async fn load_remote(url: &url::Url) -> Result<(Box<[u8]>, String), Error> {
-    let mut response = surf::get(url)
+    let response = reqwest::Client::new()
+        .get(url.clone())
         .send()
         .await
         .map_err(|error| Error::FetchRemote {
             error,
             url: url.clone(),
         })?;
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|t| t.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
     let body = response
-        .body_bytes()
+        .bytes()
         .await
-        .map(|body| body.into_boxed_slice())
+        .map(|body| body.into_iter().collect())
         .map_err(|error| Error::FetchRemote {
             error,
             url: url.clone(),
         })?;
-    let content_type = response
-        .header("Content-Type")
-        .map(|content_type| content_type.to_string())
-        .unwrap_or("application/octet-stream".into())
-        .to_string();
     Ok((body, content_type))
 }
 
@@ -129,7 +134,7 @@ pub async fn load(src: &str, document_path: Option<&Path>) -> Result<Object, Err
         PathBuf::from(src)
     };
 
-    let body = smol::fs::read(&path)
+    let body = tokio::fs::read(&path)
         .await
         .map_err(|error| Error::ReadLocal {
             error,

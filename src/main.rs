@@ -25,7 +25,7 @@ struct Opts {
 async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
         SubCommand::ShowSchema => {
-            let config = smol::fs::read_to_string(&opts.config).await?;
+            let config = tokio::fs::read_to_string(&opts.config).await?;
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
                 let schema = schema::TableSchema::compile(collection)?;
@@ -37,7 +37,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
         }
         SubCommand::Batch => {
             let mut hasher = blake3::Hasher::new();
-            let config = smol::fs::read_to_string(&opts.config).await?;
+            let config = tokio::fs::read_to_string(&opts.config).await?;
             hasher.update(config.as_bytes());
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
 
@@ -68,10 +68,11 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
     let opts = Opts::parse();
-    smol::block_on(async move { run(opts).await.inspect_err(|e| error!(%e, "ciritical")) })
+    run(opts).await.inspect_err(|e| error!(%e, "ciritical"))
 }

@@ -2,6 +2,7 @@ use std::{fmt::Debug, path::PathBuf};
 
 use derive_debug::Dbg;
 use indexmap::IndexMap;
+use tracing::info;
 
 pub mod cloudflrae;
 
@@ -93,7 +94,7 @@ pub trait Database {
     fn sync(
         &self,
         ctx: &Self::Context,
-        tables: Tables,
+        tables: &Tables,
     ) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
@@ -119,6 +120,7 @@ where
         .fetch_objects_metadata(&ctx)
         .await
         .map_err(Error::Database)?;
+    info!(len = present_objects.len(), "present object hash fetched");
     let r2 = r2.into_iter().filter_map(|(hash, obj)| {
         if present_objects.contains_key(&hash) {
             None
@@ -144,7 +146,9 @@ where
         .upload(r2, kv, asset)
         .await
         .map_err(Error::Storage)?;
-    db.sync(&ctx, tables).await.map_err(Error::Database)?;
+    info!("upload task finished");
+    db.sync(&ctx, &tables).await.map_err(Error::Database)?;
+    info!("upsert finished");
     let appeared_objects = db
         .fetch_objects_metadata(&ctx)
         .await
@@ -176,6 +180,7 @@ where
         )
         .await
         .map_err(Error::Storage)?;
+    info!("cleanup finished");
 
     Ok(())
 }

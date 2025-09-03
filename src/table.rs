@@ -780,7 +780,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>>(
     path: P,
 ) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());
-    let document = smol::fs::read_to_string(&path)
+    let document = tokio::fs::read_to_string(&path)
         .await
         .map_err(|error| ctx.clone().error(ErrorDetail::ReadDocument(error)))?;
     hasher.update(document.as_bytes());

@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use aws_config::BehaviorVersion;
 use futures::{
-    FutureExt,
+    FutureExt, TryFutureExt,
     future::{join_all, try_join_all},
     join, try_join,
 };
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::warn;
 
@@ -28,16 +28,18 @@ pub enum Error {
         error: String,
     },
     #[error("KV upload failed: {namespace}: {error}")]
-    KvUploadFailed { namespace: String, error: String },
+    KvTransport { namespace: String, error: String },
+    #[error("KV upload failed: {namespace}: {msg}")]
+    KvUploadFailed { namespace: String, msg: String },
     #[error("Asset upload failed: {path}: {error}")]
     AssetUploadFailed {
         path: PathBuf,
         error: std::io::Error,
     },
     #[error("D1 query failed: {0}")]
-    D1Transport(surf::Error),
-    #[error("D1 query failed: {errors:?}")]
-    D1QueryFailed { errors: Vec<D1Error> },
+    D1Transport(reqwest::Error),
+    #[error("D1 query failed: {error}")]
+    D1QueryFailed { error: String },
 }
 
 impl CloudflareStorage {
@@ -102,17 +104,26 @@ impl super::StorageBackend for CloudflareStorage {
                 .push(delete.key);
         }
         let kv_uploads = kv_pairs.into_iter().map(|(namespace, keys)| {
-            surf::delete(format!("https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk", self.account_id))
-                .header("Authorization", format!("Bearer {}", self.token))
+            reqwest::Client::new().delete(
+                format!("https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk", self.account_id)
+            )
+            .bearer_auth(&self.token)
                 .header("Content-Type", "application/json")
                 .body(serde_json::to_string(&keys).unwrap())
                 .send()
-                .map(move |result| if let Err(error) = result {
-                    warn!(namespace, %error, "failed to delete key");
-                })
+                .then( |result| async move { match result  {
+                    Err(error) => warn!(namespace, %error, "failed to delete key"),
+                    Ok(result) => {
+                        if !result.status().is_success() {
+                            let status = result.status().as_u16();
+                            let text = result.text().await.unwrap_or_default();
+                            warn!( status, text, "failed to delete key");
+                        }
+                    }
+                }})
         });
         let asset_uploads = asset.map(|upload| async move {
-            if let Err(error) = smol::fs::remove_file(&upload.path).await {
+            if let Err(error) = tokio::fs::remove_file(&upload.path).await {
                 warn!(path=?upload.path, %error, "failed to remove asset file");
             }
         });
@@ -161,15 +172,33 @@ impl super::StorageBackend for CloudflareStorage {
                     "base64": false,
                 })
             ).collect::<Vec<_>>();
-            surf::put(format!("https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk", self.account_id))
-                .header("Authorization", format!("Bearer {}", self.token))
-                .header("Content-Type", "application/json")
-                .body(serde_json::to_string(&body).unwrap())
-                .send()
-                .map(|result| result.map_err(|error| Error::KvUploadFailed {
-                    namespace,
-                    error: error.to_string(),
-                }))
+            reqwest::Client::new().put(
+                format!("https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk", self.account_id)
+            )
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .then(|result| async move { match result {
+                Err(error) => Err(
+                    Error::KvTransport {
+                        namespace,
+                        error: error.to_string(),
+                    }
+                ),
+                Ok(response) => {
+                    if response.status().is_success() {
+                        Ok(())
+                    }
+                    else {
+                        let msg = response.text().await.map_err(|error|
+                            Error::KvTransport {
+                                namespace: namespace.clone(),
+                                error: error.to_string(),
+                            })?;
+                        Err(Error::KvUploadFailed { namespace, msg })
+                    }
+                }
+            }})
         });
         let asset_uploads = asset.map(|upload| async move {
             if let Some(path) = upload
@@ -181,14 +210,14 @@ impl super::StorageBackend for CloudflareStorage {
                 })?
                 .parent()
             {
-                smol::fs::create_dir_all(path)
-                    .await
-                    .map_err(|error| Error::AssetUploadFailed {
+                tokio::fs::create_dir_all(path).await.map_err(|error| {
+                    Error::AssetUploadFailed {
                         path: upload.path.clone(),
                         error,
-                    })?;
+                    }
+                })?;
             }
-            smol::fs::write(&upload.path, &upload.body)
+            tokio::fs::write(&upload.path, &upload.body)
                 .await
                 .map_err(|error| Error::AssetUploadFailed {
                     path: upload.path.clone(),
@@ -225,7 +254,7 @@ struct D1Result<Row> {
     results: Vec<Row>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct D1Error {
     pub code: u16,
     pub message: String,
@@ -258,24 +287,21 @@ impl super::Database for D1Database {
         &self,
         ctx: &Self::Context,
     ) -> Result<IndexMap<blake3::Hash, crate::field::StoragePointer>, Self::Error> {
-        let mut response = surf::post(format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
-            self.account_id, self.database_id
-        ))
-        .content_type("application/json")
-        .header("Authorization", format!("Bearer {}", self.token))
-        .body(
-            serde_json::to_string(&json!({
+        let response = reqwest::Client::new()
+            .post(format!(
+                "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
+                self.account_id, self.database_id
+            ))
+            .bearer_auth(&self.token)
+            .json(&json!({
                 "sql": sql::SQL_FETCH_ALL_OBJECT.render(ctx).unwrap(),
                 "params": [],
             }))
-            .unwrap(),
-        )
-        .send()
-        .await
-        .map_err(Error::D1Transport)?;
+            .send()
+            .await
+            .map_err(Error::D1Transport)?;
         let body = response
-            .body_json::<D1Response<[D1Result<ObjectRow>; 1]>>()
+            .json::<D1Response<[D1Result<ObjectRow>; 1]>>()
             .await
             .map_err(Error::D1Transport)?;
         if body.errors.is_empty() {
@@ -290,7 +316,7 @@ impl super::Database for D1Database {
             Ok(metadata)
         } else {
             Err(Error::D1QueryFailed {
-                errors: body.errors,
+                error: serde_json::to_string(&body.errors).unwrap(),
             })
         }
     }
@@ -298,34 +324,48 @@ impl super::Database for D1Database {
     async fn sync(
         &self,
         ctx: &Self::Context,
-        tables: crate::table::Tables,
+        tables: &crate::table::Tables,
     ) -> Result<(), Self::Error> {
-        let mut response = surf::post(format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
-            self.account_id, self.database_id
-        ))
-        .content_type("application/json")
-        .header("Authorization", format!("Bearer {}", self.token))
-        .body(
-            serde_json::to_string(&json!({
-                "sql": sql::SQL_UPSERT.render(ctx).unwrap(),
-                "params": [serde_json::to_string(&tables).unwrap()],
-            }))
-            .unwrap(),
-        )
-        .send()
-        .await
-        .map_err(Error::D1Transport)?;
-        let body = response
-            .body_json::<D1Response<Vec<serde_json::Value>>>()
-            .await
-            .map_err(Error::D1Transport)?;
-        if body.errors.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::D1QueryFailed {
-                errors: body.errors,
-            })
-        }
+        let query = sql::SQL_UPSERT.render(ctx).unwrap();
+        let tasks =
+            query
+                .split(";")
+                .map(|statement| statement.trim())
+                .map(|statement| async move {
+                    if !statement.is_empty() {
+                        let response = reqwest::Client::new()
+                        .post(format!(
+                            "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
+                            self.account_id, self.database_id
+                        ))
+                        .bearer_auth(&self.token)
+                        .json(&json!({
+                            "sql": statement,
+                            "params": [serde_json::to_string(tables).unwrap()],
+                        }))
+                        .send()
+                        .await
+                        .map_err(Error::D1Transport)?;
+                        if !response.status().is_success() {
+                            let msg = response.text().await.map_err(Error::D1Transport)?;
+                            return Err(Error::D1QueryFailed { error: msg });
+                        }
+                        let response = response
+                            .json::<D1Response<Vec<serde_json::Value>>>()
+                            .await
+                            .map_err(Error::D1Transport)?;
+                        if !response.errors.is_empty() {
+                            Err(Error::D1QueryFailed {
+                                error: serde_json::to_string(&response.errors).unwrap(),
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    } else {
+                        Ok(())
+                    }
+                });
+        try_join_all(tasks).await?;
+        Ok(())
     }
 }
