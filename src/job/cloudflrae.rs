@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use aws_config::BehaviorVersion;
 use futures::{
-    FutureExt, TryFutureExt,
+    FutureExt,
     future::{join_all, try_join_all},
     join, try_join,
 };
