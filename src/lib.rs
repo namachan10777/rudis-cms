@@ -16,8 +16,8 @@ pub mod table;
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {detail}")]
 pub struct Error {
-    pub context: ErrorContext,
-    pub detail: ErrorDetail,
+    pub context: Box<ErrorContext>,
+    pub detail: Box<ErrorDetail>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,8 +40,8 @@ impl ErrorContext {
 
     fn error(&self, detail: ErrorDetail) -> Error {
         Error {
-            context: self.clone(),
-            detail,
+            context: Box::new(self.clone()),
+            detail: Box::new(detail),
         }
     }
 }

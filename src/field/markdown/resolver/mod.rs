@@ -46,7 +46,7 @@ impl<'r> Resolvers<'r> {
     fn rewrite(&self, node: Node<KeepRaw>) -> Node<Keep> {
         if let Some(link_card) = self.link_card.resolve(&node) {
             return Node::Lazy {
-                keep: Keep::LinkCard(link_card.clone()),
+                keep: Keep::LinkCard(Box::new(link_card.clone())),
                 children: Default::default(),
             };
         }

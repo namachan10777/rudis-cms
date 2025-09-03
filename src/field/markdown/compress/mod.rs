@@ -153,7 +153,7 @@ pub struct FootnoteReference {
 pub enum Keep {
     Heading(Heading),
     Image(Image),
-    LinkCard(LinkCard),
+    LinkCard(Box<LinkCard>),
     Codeblock(Codeblock),
     Alert(AlertKind),
     FootnoteReference(FootnoteReference),

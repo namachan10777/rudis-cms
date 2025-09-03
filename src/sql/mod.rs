@@ -73,10 +73,10 @@ fn is_required(field: &schema::FieldType) -> bool {
     }
 }
 
-const LIQUID_TEMPLATE_PARSER: LazyLock<liquid::Parser> =
+static LIQUID_TEMPLATE_PARSER: LazyLock<liquid::Parser> =
     LazyLock::new(|| liquid::ParserBuilder::with_stdlib().build().unwrap());
 
-pub const SQL_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub static SQL_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
     LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/ddl.sql.liquid"))
         .unwrap()
@@ -209,13 +209,13 @@ pub fn liquid_default_context(schema: &schema::CollectionSchema) -> liquid::Obje
     })
 }
 
-pub const SQL_FETCH_ALL_OBJECT: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub static SQL_FETCH_ALL_OBJECT: LazyLock<liquid::Template> = LazyLock::new(|| {
     LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/fetch_all_hash.liquid"))
         .unwrap()
 });
 
-pub const SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub static SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
     LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/upsert.liquid"))
         .unwrap()
