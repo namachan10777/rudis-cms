@@ -73,16 +73,16 @@ fn is_required(field: &schema::FieldType) -> bool {
     }
 }
 
-const PARSER: LazyLock<liquid::Parser> =
+const LIQUID_TEMPLATE_PARSER: LazyLock<liquid::Parser> =
     LazyLock::new(|| liquid::ParserBuilder::with_stdlib().build().unwrap());
 
 pub const SQL_DDL: LazyLock<liquid::Template> = LazyLock::new(|| {
-    PARSER
+    LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/ddl.sql.liquid"))
         .unwrap()
 });
 
-fn liquid_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_inherit_id_columns(schema: &schema::TableSchema) -> impl Iterator<Item = liquid::Object> {
     schema.inherit_ids.iter().map(|id| {
         liquid::object!({
             "name": id,
@@ -93,7 +93,7 @@ fn liquid_inherit_id_columns(schema: &schema::Schema) -> impl Iterator<Item = li
     })
 }
 
-fn liquid_data_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_data_columns(schema: &schema::TableSchema) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         let ty = sqlite_type_name(field)?;
         if matches!(field, schema::FieldType::Id) {
@@ -108,7 +108,7 @@ fn liquid_data_columns(schema: &schema::Schema) -> impl Iterator<Item = liquid::
     })
 }
 
-fn liqui_id_column(schema: &schema::Schema) -> liquid::Object {
+fn liqui_id_column(schema: &schema::TableSchema) -> liquid::Object {
     liquid::object!({
         "name": schema.id_name,
         "type": "TEXT",
@@ -117,7 +117,9 @@ fn liqui_id_column(schema: &schema::Schema) -> liquid::Object {
     })
 }
 
-fn liquid_internal_column_indexes(schema: &schema::Schema) -> impl Iterator<Item = liquid::Object> {
+fn liquid_internal_column_indexes(
+    schema: &schema::TableSchema,
+) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         if to_be_indexed(field) {
             Some(liquid::object!({
@@ -131,7 +133,7 @@ fn liquid_internal_column_indexes(schema: &schema::Schema) -> impl Iterator<Item
 }
 
 fn liquid_object_column_hash_indexes(
-    schema: &schema::Schema,
+    schema: &schema::TableSchema,
 ) -> impl Iterator<Item = liquid::Object> {
     schema.fields.iter().filter_map(|(name, field)| {
         if is_object_field(field) {
@@ -146,7 +148,7 @@ fn liquid_object_column_hash_indexes(
     })
 }
 
-fn liquid_parent_table(schema: &schema::Schema) -> Option<liquid::Object> {
+fn liquid_parent_table(schema: &schema::TableSchema) -> Option<liquid::Object> {
     schema.parent.as_ref().map(|parent| {
         liquid::object!({
             "table": parent.name,
@@ -156,14 +158,15 @@ fn liquid_parent_table(schema: &schema::Schema) -> Option<liquid::Object> {
     })
 }
 
-fn liquid_primary_key(schema: &schema::Schema) -> Vec<String> {
+fn liquid_primary_key(schema: &schema::TableSchema) -> Vec<String> {
     let mut primary_key = schema.inherit_ids.clone();
     primary_key.push(schema.id_name.clone());
     primary_key
 }
 
-fn liquid_object_columns(schema: &schema::TableSchemas) -> Vec<liquid::Object> {
+fn liquid_object_columns(schema: &schema::CollectionSchema) -> Vec<liquid::Object> {
     schema
+        .tables
         .iter()
         .flat_map(|(table, schema)| {
             schema.fields.iter().filter_map(|(column, field)| {
@@ -180,8 +183,9 @@ fn liquid_object_columns(schema: &schema::TableSchemas) -> Vec<liquid::Object> {
         .collect()
 }
 
-fn liquid_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::Object> {
-    let mut tables = schema
+fn liquid_tables(schema: &schema::CollectionSchema) -> IndexMap<String, liquid::Object> {
+    schema
+        .tables
             .iter()
             .map(|(table, schema)| {
                 let ctx = liquid::object!({
@@ -195,12 +199,10 @@ fn liquid_tables(schema: &schema::TableSchemas) -> IndexMap<String, liquid::Obje
                 });
                 (table.clone(), ctx)
             })
-            .collect::<IndexMap<String, _>>();
-    tables.reverse();
-    tables
+            .collect::<IndexMap<String, _>>()
 }
 
-pub fn liquid_default_context(schema: &schema::TableSchemas) -> liquid::Object {
+pub fn liquid_default_context(schema: &schema::CollectionSchema) -> liquid::Object {
     liquid::object!({
         "tables": liquid_tables(schema).into_values().collect::<Vec<_>>(),
         "object_columns": liquid_object_columns(schema),
@@ -208,13 +210,13 @@ pub fn liquid_default_context(schema: &schema::TableSchemas) -> liquid::Object {
 }
 
 pub const SQL_FETCH_ALL_OBJECT: LazyLock<liquid::Template> = LazyLock::new(|| {
-    PARSER
+    LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/fetch_all_hash.liquid"))
         .unwrap()
 });
 
 pub const SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
-    PARSER
+    LIQUID_TEMPLATE_PARSER
         .parse(include_str!("./templates/upsert.liquid"))
         .unwrap()
 });

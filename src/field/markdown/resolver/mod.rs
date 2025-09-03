@@ -2,19 +2,15 @@ use indexmap::indexmap;
 use std::path::Path;
 
 use crate::{
-    config,
-    field::{
-        CompoundId,
-        markdown::{
-            Node,
-            compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
-            parser::{KeepRaw, RichTextDocumentRaw},
-            raw_to_expanded,
-            resolver::image::ImageResolved,
-            text_content,
-        },
-        upload,
+    field::markdown::{
+        Node,
+        compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
+        parser::{KeepRaw, RichTextDocumentRaw},
+        raw_to_expanded,
+        resolver::image::ImageResolved,
+        text_content,
     },
+    table,
 };
 
 mod codeblock;
@@ -215,12 +211,10 @@ impl<'r> Resolvers<'r> {
 }
 
 impl RichTextDocument {
-    pub async fn resolve(
+    pub(crate) async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        backend: &upload::UploadCollector,
-        id: &CompoundId,
-        storage: &config::ImageStorage,
+        uploader: &table::MarkdownImageCollector<'_>,
         embed_svg_threshold: usize,
     ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
         let mut footnote_resolver = footnote::FootnoteResolver::new(&document.footnotes);
@@ -232,12 +226,11 @@ impl RichTextDocument {
         document.for_each_content(|node| link_card_extractor.analyze(node));
 
         let config = image::Config {
-            storage,
             embed_svg_threshold,
         };
 
         let image_resolver = image_extractor
-            .into_resolver(document_path, backend, id, config)
+            .into_resolver(document_path, uploader, config)
             .await?;
         let link_card_resolver = link_card_extractor.into_resolver().await;
         let resolvers = Resolvers {

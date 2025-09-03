@@ -94,7 +94,7 @@ pub async fn batch(
     collection: &config::Collection,
     hasher: blake3::Hasher,
 ) -> Result<(), anyhow::Error> {
-    let schema = schema::Schema::tables(collection)?;
+    let schema = schema::TableSchema::compile(collection)?;
     let uploads = crate::field::upload::UploadCollector::default();
     let mut tables: table::Tables = IndexMap::new();
     let tasks = glob::glob(&collection.glob)?.map(|path| async {

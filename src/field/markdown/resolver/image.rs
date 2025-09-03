@@ -4,13 +4,13 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 
 use crate::{
-    ErrorDetail, config,
+    ErrorDetail,
     field::{
-        CompoundId, ImageReference,
+        ImageReference,
         markdown::{Node, parser::KeepRaw},
         object_loader::{self, ImageContent, SvgNode},
-        upload,
     },
+    table,
 };
 
 #[derive(Default)]
@@ -40,9 +40,8 @@ pub struct ImageResolver {
     hashes: Vec<blake3::Hash>,
 }
 
-pub struct Config<'a> {
+pub struct Config {
     pub(super) embed_svg_threshold: usize,
-    pub(super) storage: &'a config::ImageStorage,
 }
 
 pub(super) enum ImageResolved {
@@ -54,9 +53,8 @@ impl<'a> ImageSrcExtractor<'a> {
     pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        uploads: &upload::UploadCollector,
-        id: &CompoundId,
-        config: Config<'a>,
+        uploads: &table::MarkdownImageCollector<'_>,
+        config: Config,
     ) -> Result<ImageResolver, ErrorDetail> {
         let tasks = self.src_set.into_iter().map(|src| async move {
             let image = object_loader::load_image(src, document_path)
@@ -73,7 +71,7 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let reference = uploads.push_image(config.storage, id, image.clone(), true);
+                    let reference = uploads.push_markdown_image(image);
                     Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }

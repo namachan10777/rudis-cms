@@ -28,7 +28,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config = smol::fs::read_to_string(&opts.config).await?;
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
-                let schema = schema::Schema::tables(collection)?;
+                let schema = schema::TableSchema::compile(collection)?;
                 let liquid_ctx = liquid_default_context(&schema);
                 println!("-- Table: {}", name);
                 println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());

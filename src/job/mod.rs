@@ -84,7 +84,7 @@ pub trait Database {
     type Error: std::error::Error + Debug + Sync + Send + 'static;
     fn create_context(
         &self,
-        schema: &schema::TableSchemas,
+        schema: &schema::CollectionSchema,
     ) -> impl Future<Output = Result<Self::Context, Self::Error>>;
     fn fetch_objects_metadata(
         &self,
@@ -105,7 +105,7 @@ pub struct SyncSet {
 pub async fn batch<S, D, ES, ED>(
     backend: &S,
     db: &D,
-    schema: &schema::TableSchemas,
+    schema: &schema::CollectionSchema,
     set: SyncSet,
 ) -> Result<(), Error<ES, ED>>
 where

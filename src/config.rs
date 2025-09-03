@@ -36,6 +36,7 @@ pub enum ImageFormat {
 #[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownImageConfig {
     pub table: String,
+    pub inherit_ids: Vec<String>,
     pub storage: ImageStorage,
     pub embed_svg_threshold: usize,
 }

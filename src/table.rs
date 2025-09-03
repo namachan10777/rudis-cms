@@ -15,11 +15,11 @@ use crate::{
     Error, ErrorContext, ErrorDetail,
     config::{self, DocumentSyntax},
     field::{
-        self, ColumnValue, CompoundId, CompoundIdPrefix,
+        self, ColumnValue, CompoundId, CompoundIdPrefix, ImageReference,
         markdown::{self, compress},
         object_loader, upload,
     },
-    schema::{self, TableSchemas},
+    schema,
 };
 
 pub struct ImageColumn {}
@@ -134,6 +134,8 @@ enum FieldValue {
     Markdown {
         document: compress::RichTextDocument,
         storage: config::MarkdownStorage,
+        image_table: String,
+        image_rows: Vec<RowNode>,
     },
     Records(Records),
 }
@@ -159,12 +161,12 @@ impl Serialize for FieldValue {
 
 struct RecordContext<'c> {
     table: String,
-    schema: Arc<TableSchemas>,
+    schema: Arc<schema::CollectionSchema>,
     hasher: blake3::Hasher,
     compound_id_prefix: CompoundIdPrefix,
     error: ErrorContext,
     document_path: PathBuf,
-    backend: &'c upload::UploadCollector,
+    uploader: &'c upload::UploadCollector,
 }
 
 impl<'c> Clone for RecordContext<'c> {
@@ -176,24 +178,24 @@ impl<'c> Clone for RecordContext<'c> {
             compound_id_prefix: self.compound_id_prefix.clone(),
             error: self.error.clone(),
             document_path: self.document_path.clone(),
-            backend: self.backend,
+            uploader: self.uploader,
         }
     }
 }
 
 impl<'source> RecordContext<'source> {
-    fn current_schema(&self) -> &Arc<schema::Schema> {
-        self.schema.get(&self.table).unwrap()
+    fn current_schema(&self) -> &schema::TableSchema {
+        self.schema.tables.get(&self.table).unwrap()
     }
 
     fn nest(self, table: impl Into<String>, id: CompoundId) -> Result<Self, crate::Error> {
         let table = table.into();
-        let inherit_ids = self.schema.get(&table).unwrap().inherit_ids.clone();
+        let inherit_ids = self.schema.tables.get(&table).unwrap().inherit_ids.clone();
         let Self {
             schema,
             error,
             document_path,
-            backend,
+            uploader,
             ..
         } = self;
         let compound_id_prefix = id
@@ -206,7 +208,7 @@ impl<'source> RecordContext<'source> {
             compound_id_prefix,
             error,
             document_path,
-            backend,
+            uploader,
         })
     }
 
@@ -434,7 +436,7 @@ async fn process_image_field<'source>(
         .map_err(ErrorDetail::LoadImage)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(image.hash.as_bytes());
-    let reference = ctx.backend.push_image(storage, id, image.clone(), false);
+    let reference = ctx.uploader.push_image(storage, id, image.clone(), false);
     Ok(ColumnValue::Image(reference))
 }
 
@@ -459,8 +461,24 @@ async fn process_file_field<'source>(
         .map_err(ErrorDetail::Load)
         .map_err(|error| ctx.error.error(error))?;
     hasher.update(file.hash.as_bytes());
-    let reference = ctx.backend.push_file(storage, id, file.clone());
+    let reference = ctx.uploader.push_file(storage, id, file.clone());
     Ok(ColumnValue::File(reference))
+}
+
+pub(crate) struct MarkdownImageCollector<'u> {
+    uploader: &'u upload::UploadCollector,
+    images: crossbeam::queue::SegQueue<(String, ImageReference)>,
+    storage: &'u config::ImageStorage,
+    id: &'u CompoundId,
+}
+
+impl<'u> MarkdownImageCollector<'u> {
+    pub(crate) fn push_markdown_image(&self, image: object_loader::Image) -> ImageReference {
+        let derived_id = image.derived_id.clone();
+        let reference = self.uploader.push_image(self.storage, self.id, image, true);
+        self.images.push((derived_id, reference.clone()));
+        reference
+    }
 }
 
 async fn process_markdown_field<'source>(
@@ -482,12 +500,16 @@ async fn process_markdown_field<'source>(
         )
     };
     let document = markdown::parser::parse(&src);
+    let image_uploader = MarkdownImageCollector {
+        uploader: ctx.uploader,
+        images: crossbeam::queue::SegQueue::new(),
+        id,
+        storage: &image.storage,
+    };
     let (document, hashes) = markdown::resolver::RichTextDocument::resolve(
         document,
         Some(&ctx.document_path),
-        ctx.backend,
-        id,
-        &image.storage,
+        &image_uploader,
         image.embed_svg_threshold,
     )
     .await
@@ -496,8 +518,24 @@ async fn process_markdown_field<'source>(
     hashes.iter().for_each(|hash| {
         hasher.update(hash.as_bytes());
     });
+
+    let ctx = ctx.clone().nest(&image.table, id.clone())?;
+
     let value = FieldValue::Markdown {
         document,
+        image_table: image.table.clone(),
+        image_rows: image_uploader
+            .images
+            .into_iter()
+            .map(|(src_id, image_reference)| RowNode {
+                id: ctx.id(src_id),
+                hash: image_reference.hash,
+                fields: indexmap! {
+                    "image".to_string() => ColumnValue::Image(image_reference)
+                },
+                records: Default::default(),
+            })
+            .collect(),
         storage: storage.clone(),
     };
     Ok((value, hasher.finalize()))
@@ -632,9 +670,19 @@ async fn process_row_impl<'source>(
             }
             Some(FieldValue::Markdown {
                 document,
+                image_table,
+                mut image_rows,
                 storage: config::MarkdownStorage::Inline,
             }) => {
                 let content = serde_json::to_value(&document).unwrap();
+                records
+                    .entry(image_table.clone())
+                    .or_insert_with(|| Records {
+                        table: image_table.clone(),
+                        rows: Default::default(),
+                    })
+                    .rows
+                    .append(&mut image_rows);
                 fields.insert(
                     name.clone(),
                     ColumnValue::Markdown(field::MarkdownReference::Inline {
@@ -645,8 +693,18 @@ async fn process_row_impl<'source>(
             }
             Some(FieldValue::Markdown {
                 document,
+                image_table,
+                mut image_rows,
                 storage: config::MarkdownStorage::Kv { namespace, prefix },
             }) => {
+                records
+                    .entry(image_table.clone())
+                    .or_insert_with(|| Records {
+                        table: image_table.clone(),
+                        rows: Default::default(),
+                    })
+                    .rows
+                    .append(&mut image_rows);
                 markdowns.insert(
                     name.clone(),
                     (document, upload::MarkdownStorage::Kv { namespace, prefix }),
@@ -667,7 +725,7 @@ async fn process_row_impl<'source>(
     let frontmatter = serde_json::to_value(&frontmatter).unwrap();
     for (name, (document, storage)) in markdowns.into_iter() {
         let reference = ctx
-            .backend
+            .uploader
             .push_markdown(&storage, &id, document, frontmatter.clone());
         fields.insert(name, ColumnValue::Markdown(reference));
     }
@@ -689,7 +747,7 @@ fn process_row<'source, 'c>(
 pub type Tables = IndexMap<String, Vec<IndexMap<String, ColumnValue>>>;
 
 fn tree_to_flat_tables(
-    schema: &schema::TableSchemas,
+    schema: &schema::CollectionSchema,
     tables: &mut Tables,
     table: String,
     row: RowNode,
@@ -699,6 +757,7 @@ fn tree_to_flat_tables(
         fields.insert(name.into(), ColumnValue::Id(id.into()));
     }
     if let Some(hash_name) = schema
+        .tables
         .get(&table)
         .and_then(|table| table.hash_name.as_ref())
     {
@@ -715,9 +774,9 @@ fn tree_to_flat_tables(
 pub async fn push_rows_from_document<P: AsRef<Path>>(
     table: &str,
     mut hasher: blake3::Hasher,
-    schema: &schema::TableSchemas,
+    schema: &schema::CollectionSchema,
     syntax: &DocumentSyntax,
-    backend: &upload::UploadCollector,
+    uploader: &upload::UploadCollector,
     path: P,
 ) -> Result<Tables, Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());
@@ -745,7 +804,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>>(
         compound_id_prefix: Default::default(),
         error: ctx,
         document_path: path.as_ref().to_owned(),
-        backend,
+        uploader,
     };
 
     let mut tables = IndexMap::new();

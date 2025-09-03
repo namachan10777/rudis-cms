@@ -249,7 +249,7 @@ impl super::Database for D1Database {
 
     async fn create_context(
         &self,
-        schema: &crate::schema::TableSchemas,
+        schema: &crate::schema::CollectionSchema,
     ) -> Result<Self::Context, Self::Error> {
         Ok(sql::liquid_default_context(schema))
     }
@@ -259,7 +259,7 @@ impl super::Database for D1Database {
         ctx: &Self::Context,
     ) -> Result<IndexMap<blake3::Hash, crate::field::StoragePointer>, Self::Error> {
         let mut response = surf::post(format!(
-            "https://api.cloudflare.com/client/v4/{}/d1/databases/{}/query",
+            "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
             self.account_id, self.database_id
         ))
         .content_type("application/json")
@@ -301,7 +301,7 @@ impl super::Database for D1Database {
         tables: crate::table::Tables,
     ) -> Result<(), Self::Error> {
         let mut response = surf::post(format!(
-            "https://api.cloudflare.com/client/v4/{}/d1/databases/{}/query",
+            "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}/query",
             self.account_id, self.database_id
         ))
         .content_type("application/json")

@@ -9,6 +9,6 @@ CREATE TABLE IF NOT EXISTS {{ table.name }} (
     PRIMARY KEY ({{ table.primary_key | join: ", " }})
 );
 {% for index in table.indexes -%}
-CREATE INDEX IF NOT EXISTS {{ index.name }} ON {{ table.name }}({{ index.index }});
+CREATE INDEX IF NOT EXISTS index_{{ table.name}}_{{ index.name }} ON {{ table.name }}({{ index.index }});
 {% endfor %}
 {% endfor -%}
