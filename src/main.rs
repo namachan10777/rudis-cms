@@ -1,23 +1,17 @@
 use std::path::PathBuf;
 
-use anyhow::Context;
 use clap::Parser;
-use futures::future::try_join_all;
 use indexmap::IndexMap;
 use rudis_cms::{
-    config, record, schema,
+    config, schema,
     sql::{SQL_DDL, liquid_default_context},
 };
-use tracing::{error, info, trace};
+use tracing::error;
 
 #[derive(clap::Subcommand)]
 enum SubCommand {
-    Batch,
     ShowSchema,
-    Local {
-        #[clap(short, long)]
-        path: Option<PathBuf>,
-    },
+    Batch,
 }
 
 #[derive(clap::Parser)]
@@ -28,82 +22,16 @@ struct Opts {
     subcmd: SubCommand,
 }
 
-struct Noop {}
-impl rudis_cms::sql::StorageBackend for Noop {
-    async fn delete(
-        &self,
-        _: impl Iterator<Item = rudis_cms::sql::R2Delete>,
-        _: impl Iterator<Item = rudis_cms::sql::KvDelete>,
-        _: impl Iterator<Item = rudis_cms::sql::AssetDelete>,
-    ) -> Result<(), rudis_cms::sql::Error> {
-        Ok(())
-    }
-
-    async fn upload(
-        &self,
-        _: impl Iterator<Item = rudis_cms::field::upload::R2Upload>,
-        _: impl Iterator<Item = rudis_cms::field::upload::KvUpload>,
-        _: impl Iterator<Item = rudis_cms::field::upload::AssetUpload>,
-    ) -> Result<(), rudis_cms::sql::Error> {
-        Ok(())
-    }
-}
-
 async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
         SubCommand::ShowSchema => {
             let config = smol::fs::read_to_string(&opts.config).await?;
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             for (name, collection) in &config {
-                let schema = schema::Schema::tables(&collection)?;
+                let schema = schema::Schema::tables(collection)?;
                 let liquid_ctx = liquid_default_context(&schema);
                 println!("-- Table: {}", name);
                 println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());
-            }
-            Ok(())
-        }
-        SubCommand::Local { path } => {
-            let mut hasher = blake3::Hasher::new();
-            let config = smol::fs::read_to_string(&opts.config).await?;
-            hasher.update(config.as_bytes());
-            let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
-            let conn = if let Some(path) = path {
-                rusqlite::Connection::open(path)?
-            } else {
-                rusqlite::Connection::open_in_memory()?
-            };
-            for (_, collection) in &config {
-                let schema = schema::Schema::tables(&collection)?;
-                let liquid_ctx = liquid_default_context(&schema);
-                conn.execute_batch(&SQL_DDL.render(&liquid_ctx).unwrap())?;
-                let uploads = rudis_cms::field::upload::UploadCollector::default();
-                let mut tables: record::Tables = IndexMap::new();
-                let tasks = glob::glob(&collection.glob)?.into_iter().map(|path| async {
-                    record::push_rows_from_document(
-                        &collection.table,
-                        hasher.clone(),
-                        &schema,
-                        &collection.syntax,
-                        &uploads,
-                        path?,
-                    )
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))
-                    .inspect(|tables| {
-                        for (table, rows) in tables {
-                            for row in rows {
-                                trace!(table, ?row, "row");
-                            }
-                        }
-                    })
-                });
-                try_join_all(tasks).await?.into_iter().for_each(|t| {
-                    for (table, mut rows) in t {
-                        tables.entry(table).or_default().append(&mut rows);
-                    }
-                });
-                let uploads = uploads.collect().await;
-                rudis_cms::sql::batch(&conn, &schema, tables, uploads, &Noop {}).await?;
             }
             Ok(())
         }
@@ -112,34 +40,28 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config = smol::fs::read_to_string(&opts.config).await?;
             hasher.update(config.as_bytes());
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
-            if let Some(basedir) = opts
-                .config
-                .canonicalize()
-                .with_context(|| "canonicalize config path")?
-                .parent()
-            {
-                std::env::set_current_dir(basedir).with_context(|| "switch basedir")?;
-            }
-            for (name, collection) in config {
-                info!(name, glob = collection.glob, "start");
-                let schema = schema::Schema::tables(&collection)?;
-                let uploads = rudis_cms::field::upload::UploadCollector::default();
-                let mut tables: record::Tables = IndexMap::new();
-                for path in glob::glob(&collection.glob)? {
-                    for (table, mut rows) in record::push_rows_from_document(
-                        &collection.table,
-                        hasher.clone(),
-                        &schema,
-                        &collection.syntax,
-                        &uploads,
-                        path?,
-                    )
-                    .await?
-                    {
-                        tables.entry(table).or_default().append(&mut rows);
-                    }
-                }
-                let uploads = uploads.collect().await;
+
+            let cf_account_id = std::env::var("CF_ACCOUNT_ID").unwrap();
+            let cf_api_token = std::env::var("CF_API_TOKEN").unwrap();
+            let r2_access_key_id = std::env::var("R2_ACCESS_KEY_ID").unwrap();
+            let r2_secret_access_key = std::env::var("R2_SECRET_ACCESS_KEY").unwrap();
+
+            let storage = rudis_cms::job::cloudflrae::CloudflareStorage::new(
+                &cf_account_id,
+                &cf_api_token,
+                &r2_access_key_id,
+                &r2_secret_access_key,
+            )
+            .await;
+
+            for (_, collection) in &config {
+                let database = rudis_cms::job::cloudflrae::D1Database::new(
+                    &cf_account_id,
+                    &cf_api_token,
+                    &collection.database_id,
+                );
+
+                rudis_cms::batch(&storage, &database, collection, hasher.clone()).await?;
             }
             Ok(())
         }

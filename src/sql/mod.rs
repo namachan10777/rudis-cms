@@ -1,14 +1,8 @@
-use std::{path::PathBuf, sync::LazyLock};
+use std::sync::LazyLock;
 
 use indexmap::IndexMap;
-use tracing::debug;
 
-use crate::{
-    field::StoragePointer,
-    field::upload::{AssetUpload, KvUpload, R2Upload, Uploads},
-    record,
-    schema::{self, TableSchemas},
-};
+use crate::schema;
 
 fn is_object_field(field: &schema::FieldType) -> bool {
     matches!(
@@ -213,13 +207,13 @@ pub fn liquid_default_context(schema: &schema::TableSchemas) -> liquid::Object {
     })
 }
 
-const SQL_FETCH_ALL: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub const SQL_FETCH_ALL_OBJECT: LazyLock<liquid::Template> = LazyLock::new(|| {
     PARSER
         .parse(include_str!("./templates/fetch_all_hash.liquid"))
         .unwrap()
 });
 
-const SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
+pub const SQL_UPSERT: LazyLock<liquid::Template> = LazyLock::new(|| {
     PARSER
         .parse(include_str!("./templates/upsert.liquid"))
         .unwrap()
@@ -237,151 +231,4 @@ impl From<rusqlite::Error> for Error {
     fn from(value: rusqlite::Error) -> Self {
         Self::Sql(value)
     }
-}
-
-async fn fetch_object_hashes(
-    conn: &rusqlite::Connection,
-    ctx: &liquid::Object,
-) -> Result<IndexMap<blake3::Hash, String>, Error> {
-    struct Row {
-        storage: String,
-        hash: String,
-    }
-    println!("{}", SQL_FETCH_ALL.render(ctx).unwrap());
-    let mut stmt = conn.prepare(&SQL_FETCH_ALL.render(ctx).unwrap())?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(Row {
-                hash: row.get(0)?,
-                storage: row.get(1)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    let present_hashes = rows
-        .into_iter()
-        .map(|row| {
-            let hash = row.hash.parse()?;
-            Ok((hash, row.storage))
-        })
-        .collect::<Result<IndexMap<_, _>, _>>()
-        .map_err(Error::ParseHash)?;
-    Ok(present_hashes)
-}
-
-async fn upsert(
-    conn: &rusqlite::Connection,
-    schema: &TableSchemas,
-    tables: &record::Tables,
-) -> Result<(), Error> {
-    let upsert_ctx = liquid::object!({
-        "tables": liquid_tables(schema).into_iter().filter_map(|(table, schema)| if tables.contains_key(&table) {
-            Some(schema)
-        } else {
-            None
-        }).collect::<Vec<_>>()
-    });
-    let statements = SQL_UPSERT.render(&upsert_ctx).unwrap();
-    for statement in statements.split(";") {
-        if statement.trim().is_empty() {
-            continue;
-        }
-        conn.execute(statement, [serde_json::to_string(&tables).unwrap()])?;
-    }
-    Ok(())
-}
-
-pub struct R2Delete {
-    pub bucket: String,
-    pub key: String,
-}
-
-pub struct KvDelete {
-    pub namespace: String,
-    pub key: String,
-}
-
-pub struct AssetDelete {
-    pub path: PathBuf,
-}
-
-pub struct Deletions {
-    pub r2: Vec<R2Delete>,
-    pub kv: Vec<KvDelete>,
-    pub asset: Vec<AssetDelete>,
-}
-
-pub trait StorageBackend {
-    fn upload(
-        &self,
-        r2: impl Iterator<Item = R2Upload>,
-        kv: impl Iterator<Item = KvUpload>,
-        asset: impl Iterator<Item = AssetUpload>,
-    ) -> impl Future<Output = Result<(), Error>>;
-    fn delete(
-        &self,
-        r2: impl Iterator<Item = R2Delete>,
-        kv: impl Iterator<Item = KvDelete>,
-        asset: impl Iterator<Item = AssetDelete>,
-    ) -> impl Future<Output = Result<(), Error>>;
-}
-
-pub async fn batch(
-    conn: &rusqlite::Connection,
-    schema: &TableSchemas,
-    tables: record::Tables,
-    mut upload_candidates: Uploads,
-    backend: &impl StorageBackend,
-) -> Result<(), Error> {
-    let base_ctx = liquid_default_context(schema);
-    let object_hashes_present = fetch_object_hashes(conn, &base_ctx).await?;
-    upload_candidates
-        .r2
-        .retain(|k, _| !object_hashes_present.contains_key(k));
-    upload_candidates
-        .kv
-        .retain(|k, _| !object_hashes_present.contains_key(k));
-    upload_candidates
-        .asset
-        .retain(|k, _| !object_hashes_present.contains_key(k));
-    debug!("upload filtered");
-    let Uploads { r2, kv, asset } = upload_candidates;
-    backend
-        .upload(r2.into_values(), kv.into_values(), asset.into_values())
-        .await?;
-    debug!("upload finished");
-    upsert(conn, schema, &tables).await?;
-    debug!("upsert finished");
-    let object_hashes_after = fetch_object_hashes(conn, &base_ctx).await?;
-    debug!("all removed objects identified");
-    let mut r2_deletes = Vec::new();
-    let mut kv_deletes = Vec::new();
-    let mut asset_deletes = Vec::new();
-    for (hash, storage) in object_hashes_present {
-        if object_hashes_after.contains_key(&hash) {
-            continue;
-        }
-        let Ok(storage) = serde_json::from_str::<StoragePointer>(&storage) else {
-            continue;
-        };
-        match storage {
-            StoragePointer::R2 { bucket, key } => {
-                r2_deletes.push(R2Delete { bucket, key });
-            }
-            StoragePointer::Kv { namespace, key } => {
-                kv_deletes.push(KvDelete { namespace, key });
-            }
-            StoragePointer::Asset { path } => {
-                asset_deletes.push(AssetDelete { path });
-            }
-        }
-    }
-    backend
-        .delete(
-            r2_deletes.into_iter(),
-            kv_deletes.into_iter(),
-            asset_deletes.into_iter(),
-        )
-        .await?;
-    debug!("clean up finished");
-    Ok(())
 }

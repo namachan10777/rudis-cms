@@ -1,12 +1,17 @@
 use std::path::PathBuf;
 
+use futures::future::try_join_all;
+use indexmap::IndexMap;
+use tracing::trace;
+
 use crate::field::{CompoundId, object_loader};
 
 pub mod config;
 pub mod field;
-pub mod record;
+pub mod job;
 pub mod schema;
 pub mod sql;
+pub mod table;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {detail}")]
@@ -81,4 +86,44 @@ pub enum ErrorDetail {
     InvalidParentIdNames,
     #[error("SQL Error: {0}")]
     Query(rusqlite::Error),
+}
+
+pub async fn batch(
+    storage: &impl job::StorageBackend,
+    database: &impl job::Database,
+    collection: &config::Collection,
+    hasher: blake3::Hasher,
+) -> Result<(), anyhow::Error> {
+    let schema = schema::Schema::tables(collection)?;
+    let uploads = crate::field::upload::UploadCollector::default();
+    let mut tables: table::Tables = IndexMap::new();
+    let tasks = glob::glob(&collection.glob)?.map(|path| async {
+        table::push_rows_from_document(
+            &collection.table,
+            hasher.clone(),
+            &schema,
+            &collection.syntax,
+            &uploads,
+            path?,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .inspect(|tables| {
+            for (table, rows) in tables {
+                for row in rows {
+                    trace!(table, ?row, "row");
+                }
+            }
+        })
+    });
+    try_join_all(tasks).await?.into_iter().for_each(|t| {
+        for (table, mut rows) in t {
+            tables.entry(table).or_default().append(&mut rows);
+        }
+    });
+    let uploads = uploads.collect().await;
+    let syncset = job::SyncSet { tables, uploads };
+
+    job::batch(storage, database, &schema, syncset).await?;
+    Ok(())
 }

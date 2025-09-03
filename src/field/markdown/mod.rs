@@ -47,14 +47,12 @@ pub enum Node<K> {
 }
 
 pub(crate) fn raw_to_expanded<E>(src: &str) -> Vec<Node<E>> {
-    match html_parser::Dom::parse(&src) {
-        Ok(dom) => {
-            return dom
-                .children
-                .into_iter()
-                .map(|element| element.into())
-                .collect();
-        }
+    match html_parser::Dom::parse(src) {
+        Ok(dom) => dom
+            .children
+            .into_iter()
+            .map(|element| element.into())
+            .collect(),
         Err(e) => {
             warn!(%e, "failed to parse html");
             vec![Node::Text(src.to_string())]

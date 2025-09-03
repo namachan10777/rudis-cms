@@ -19,7 +19,7 @@ pub(super) struct LinkCardExtractor<'s> {
     links: HashSet<&'s str>,
 }
 
-fn extract_isolated_link<'s>(node: &'s Node<KeepRaw>) -> Option<&'s str> {
+fn extract_isolated_link(node: &Node<KeepRaw>) -> Option<&str> {
     match node {
         Node::Eager { tag, children, .. } => {
             if tag.as_ref() != "p" {

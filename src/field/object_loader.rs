@@ -85,17 +85,17 @@ fn derive_id_from_url(url: &str) -> String {
 }
 
 pub async fn load(src: &str, document_path: Option<&Path>) -> Result<Object, Error> {
-    if let Ok(url) = url::Url::parse(src) {
-        if matches!(url.scheme(), "https" | "http") {
-            let (body, content_type) = load_remote(&url).await?;
-            return Ok(Object {
-                hash: blake3::hash(&body),
-                derived_id: derive_id_from_url(src),
-                origin: Origin::Remote(url),
-                body,
-                content_type,
-            });
-        }
+    if let Ok(url) = url::Url::parse(src)
+        && matches!(url.scheme(), "https" | "http")
+    {
+        let (body, content_type) = load_remote(&url).await?;
+        return Ok(Object {
+            hash: blake3::hash(&body),
+            derived_id: derive_id_from_url(src),
+            origin: Origin::Remote(url),
+            body,
+            content_type,
+        });
     }
     if let Ok(data) = data_url::DataUrl::process(src) {
         let (body, _) = data.decode_to_vec().map_err(|error| Error::DecodeDataUrl {

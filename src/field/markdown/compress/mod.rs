@@ -323,7 +323,7 @@ fn eager_to_section(tag: &Name, children: &[ResolverNode]) -> Option<Section> {
     if tag.as_ref() != "section" {
         return None;
     }
-    match children.get(0)? {
+    match children.first()? {
         ResolverNode::Eager {
             tag,
             attrs,

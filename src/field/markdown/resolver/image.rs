@@ -26,7 +26,7 @@ impl<'s> ImageSrcExtractor<'s> {
                 keep: KeepRaw::Image { url, .. },
                 children,
             } => {
-                self.src_set.insert(&*url);
+                self.src_set.insert(url);
                 children.iter().for_each(|node| self.analyze(node));
             }
             Node::Lazy { children, .. } => children.iter().for_each(|node| self.analyze(node)),

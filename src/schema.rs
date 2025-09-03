@@ -182,7 +182,7 @@ impl Schema {
             Arc::new(Self {
                 parent,
                 id_name,
-                hash_name: hash_name,
+                hash_name,
                 fields,
                 inherit_ids,
             }),

@@ -1,4 +1,3 @@
-use derive_debug::Dbg;
 use indexmap::IndexMap;
 use tracing::trace;
 
@@ -8,6 +7,7 @@ use crate::{
         CompoundId, FileReference, ImageReference, MarkdownReference, StoragePointer,
         markdown::compress, object_loader,
     },
+    job,
 };
 use std::{fmt::Write, path::PathBuf};
 
@@ -19,41 +19,17 @@ pub enum MarkdownStorage {
     },
 }
 
-#[derive(Dbg)]
-pub struct KvUpload {
-    pub namespace: String,
-    pub key: String,
-    #[dbg(skip)]
-    pub content: String,
-}
-
-#[derive(Dbg)]
-pub struct R2Upload {
-    pub bucket: String,
-    pub key: String,
-    #[dbg(skip)]
-    pub body: Box<[u8]>,
-    pub content_type: String,
-}
-
-#[derive(Dbg)]
-pub struct AssetUpload {
-    pub path: PathBuf,
-    #[dbg(skip)]
-    pub body: Box<[u8]>,
-}
-
 #[derive(Default)]
 pub struct UploadCollector {
-    kv: crossbeam::queue::SegQueue<(blake3::Hash, KvUpload)>,
-    r2: crossbeam::queue::SegQueue<(blake3::Hash, R2Upload)>,
-    asset: crossbeam::queue::SegQueue<(blake3::Hash, AssetUpload)>,
+    kv: crossbeam::queue::SegQueue<(blake3::Hash, job::KvUpload)>,
+    r2: crossbeam::queue::SegQueue<(blake3::Hash, job::R2Upload)>,
+    asset: crossbeam::queue::SegQueue<(blake3::Hash, job::AssetUpload)>,
 }
 
 pub struct Uploads {
-    pub r2: IndexMap<blake3::Hash, R2Upload>,
-    pub kv: IndexMap<blake3::Hash, KvUpload>,
-    pub asset: IndexMap<blake3::Hash, AssetUpload>,
+    pub r2: IndexMap<blake3::Hash, job::R2Upload>,
+    pub kv: IndexMap<blake3::Hash, job::KvUpload>,
+    pub asset: IndexMap<blake3::Hash, job::AssetUpload>,
 }
 
 impl UploadCollector {
@@ -80,7 +56,7 @@ impl UploadCollector {
                 let hash = pointer.generate_consistent_hash(blake3::hash(content.as_bytes()));
                 self.kv.push((
                     hash,
-                    KvUpload {
+                    job::KvUpload {
                         namespace: namespace.clone(),
                         key: key.clone(),
                         content: content.clone(),
@@ -122,7 +98,7 @@ impl UploadCollector {
                 let hash = pointer.generate_consistent_hash(image.hash);
                 self.r2.push((
                     hash,
-                    R2Upload {
+                    job::R2Upload {
                         bucket: bucket.clone(),
                         key: key.clone(),
                         body: image.original.clone(),
@@ -146,7 +122,7 @@ impl UploadCollector {
 
                 self.asset.push((
                     hash,
-                    AssetUpload {
+                    job::AssetUpload {
                         path: path.clone(),
                         body: image.original.clone(),
                     },
@@ -176,7 +152,7 @@ impl UploadCollector {
                 let hash = pointer.generate_consistent_hash(file.hash);
                 self.r2.push((
                     hash,
-                    R2Upload {
+                    job::R2Upload {
                         bucket: bucket.clone(),
                         key: key.clone(),
                         body: file.body.clone(),
@@ -193,7 +169,7 @@ impl UploadCollector {
                 let hash = pointer.generate_consistent_hash(file.hash);
                 self.asset.push((
                     hash,
-                    AssetUpload {
+                    job::AssetUpload {
                         path: path.clone(),
                         body: file.body.clone(),
                     },

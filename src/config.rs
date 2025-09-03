@@ -135,5 +135,6 @@ pub struct Collection {
     pub glob: String,
     pub syntax: DocumentSyntax,
     pub table: String,
+    pub database_id: String,
     pub schema: IndexMap<String, Field>,
 }

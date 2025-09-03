@@ -51,7 +51,7 @@ impl RichTextDocumentRaw {
         'a: 'f,
         F: 'f + FnMut(&'a Node<KeepRaw>),
     {
-        self.root.iter().for_each(|node| f(node));
-        self.footnotes.values().flatten().for_each(|node| f(node));
+        self.root.iter().for_each(&mut f);
+        self.footnotes.values().flatten().for_each(f);
     }
 }

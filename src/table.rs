@@ -48,19 +48,19 @@ static FRONTMATTER_SEPARATOR_YAML: LazyLock<regex::Regex> =
 static FRONTMATTER_SEPARATOR_TOML: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?:^|\n)\+\+\+\s*\n").unwrap());
 
-fn parse_markdown<'c>(
-    content: &'c str,
-) -> Result<(serde_json::Map<String, serde_json::Value>, &'c str), ErrorDetail> {
-    if let Some(start) = FRONTMATTER_SEPARATOR_YAML.find(&content) {
-        if let Some(end) = FRONTMATTER_SEPARATOR_YAML.find_at(&content, start.end() + 1) {
+fn parse_markdown(
+    content: &str,
+) -> Result<(serde_json::Map<String, serde_json::Value>, &str), ErrorDetail> {
+    if let Some(start) = FRONTMATTER_SEPARATOR_YAML.find(content) {
+        if let Some(end) = FRONTMATTER_SEPARATOR_YAML.find_at(content, start.end() + 1) {
             let frontmatter = serde_yaml::from_str(&content[start.end()..end.start()])
                 .map_err(ErrorDetail::ParseYaml)?;
             Ok((frontmatter, &content[end.end()..]))
         } else {
             Err(ErrorDetail::UnclosedFrontmatter)
         }
-    } else if let Some(start) = FRONTMATTER_SEPARATOR_TOML.find(&content) {
-        if let Some(end) = FRONTMATTER_SEPARATOR_TOML.find_at(&content, start.end() + 1) {
+    } else if let Some(start) = FRONTMATTER_SEPARATOR_TOML.find(content) {
+        if let Some(end) = FRONTMATTER_SEPARATOR_TOML.find_at(content, start.end() + 1) {
             let frontmatter = toml::de::from_str(&content[start.end()..end.start()])
                 .map_err(ErrorDetail::ParseToml)?;
             Ok((frontmatter, &content[end.end()..]))
@@ -200,7 +200,7 @@ impl<'source> RecordContext<'source> {
             .try_into_prefix(inherit_ids)
             .map_err(|detail| error.error(detail))?;
         Ok(Self {
-            table: table.into(),
+            table,
             hasher: self.hasher.clone(),
             schema,
             compound_id_prefix,
