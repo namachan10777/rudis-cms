@@ -6,7 +6,6 @@ use crate::{
         Node,
         compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
         parser::{KeepRaw, RichTextDocumentRaw},
-        raw_to_expanded,
         resolver::image::ImageResolved,
         text_content,
     },
@@ -81,12 +80,8 @@ impl<'r> Resolvers<'r> {
                 let mut code = String::new();
                 text_content(&mut code, &children);
                 let lines = code.lines().count();
-                let code = match codeblock::highlight(&code, &meta.lang) {
-                    Ok(html) => html,
-                    Err(err) => format!("<pre><code>{}</code></pre>", err),
-                };
-                let children = raw_to_expanded(&code);
                 Node::Lazy {
+                    children: codeblock::highlight(&code, &meta.lang),
                     keep: Keep::Codeblock(Codeblock {
                         lang: meta.lang,
                         lines,
@@ -96,7 +91,6 @@ impl<'r> Resolvers<'r> {
                             .and_then(|v| v.to_str())
                             .map(ToString::to_string),
                     }),
-                    children,
                 }
             }
             Node::Lazy {

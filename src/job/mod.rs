@@ -1,4 +1,4 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{collections::HashSet, fmt::Debug, path::PathBuf};
 
 use derive_debug::Dbg;
 use indexmap::IndexMap;
@@ -12,16 +12,19 @@ use crate::{
     table::{self, Tables},
 };
 
+#[derive(Hash, PartialEq, Eq)]
 pub struct R2Delete {
     pub bucket: String,
     pub key: String,
 }
 
+#[derive(Hash, PartialEq, Eq)]
 pub struct KvDelete {
     pub namespace: String,
     pub key: String,
 }
 
+#[derive(Hash, PartialEq, Eq)]
 pub struct AssetDelete {
     pub path: PathBuf,
 }
@@ -122,6 +125,29 @@ where
         .await
         .map_err(Error::Database)?;
     info!(len = present_objects.len(), "present object hash fetched");
+    let kv_delete_mask = kv
+        .iter()
+        .map(|(_, obj)| KvDelete {
+            namespace: obj.namespace.clone(),
+            key: obj.key.clone(),
+        })
+        .collect::<HashSet<_>>();
+
+    let r2_delete_mask = r2
+        .iter()
+        .map(|(_, obj)| R2Delete {
+            bucket: obj.bucket.clone(),
+            key: obj.key.clone(),
+        })
+        .collect::<HashSet<_>>();
+
+    let asset_delete_mask = asset
+        .iter()
+        .map(|(_, obj)| AssetDelete {
+            path: obj.path.clone(),
+        })
+        .collect::<HashSet<_>>();
+
     let r2 = r2.into_iter().filter_map(|(hash, obj)| {
         if force || !present_objects.contains_key(&hash) {
             Some(obj)
@@ -163,13 +189,25 @@ where
         }
         match pointer {
             StoragePointer::Asset { path } => {
-                asset_delete_list.push(AssetDelete { path });
+                let delete = AssetDelete { path };
+                if asset_delete_mask.contains(&delete) {
+                    return;
+                }
+                asset_delete_list.push(delete);
             }
             StoragePointer::Kv { namespace, key } => {
-                kv_delete_list.push(KvDelete { namespace, key });
+                let delete = KvDelete { namespace, key };
+                if kv_delete_mask.contains(&delete) {
+                    return;
+                }
+                kv_delete_list.push(delete);
             }
             StoragePointer::R2 { bucket, key } => {
-                r2_delete_list.push(R2Delete { bucket, key });
+                let delete = R2Delete { bucket, key };
+                if r2_delete_mask.contains(&delete) {
+                    return;
+                }
+                r2_delete_list.push(delete);
             }
         }
     });

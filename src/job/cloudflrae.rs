@@ -9,7 +9,7 @@ use futures::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{field::StoragePointer, sql};
 
@@ -87,7 +87,7 @@ impl super::StorageBackend for CloudflareStorage {
         kv: impl Iterator<Item = super::KvDelete>,
         asset: impl Iterator<Item = super::AssetDelete>,
     ) -> Result<(), Self::Error> {
-        let r2_uploads = r2.map(|delete| {
+        let r2_deletes = r2.map(|delete| {
             self.r2
                 .delete_object()
                 .bucket(delete.bucket.clone())
@@ -111,7 +111,8 @@ impl super::StorageBackend for CloudflareStorage {
                 .or_default()
                 .push(delete.key);
         }
-        let kv_uploads = kv_pairs.into_iter().map(|(namespace, keys)| {
+        let kv_deletes = kv_pairs.into_iter().map(|(namespace, keys)| {
+            debug!(?keys, "delete kv pairs");
             reqwest::Client::new().delete(
                 format!("https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk", self.account_id)
             )
@@ -119,7 +120,7 @@ impl super::StorageBackend for CloudflareStorage {
                 .header("Content-Type", "application/json")
                 .body(serde_json::to_string(&keys).unwrap())
                 .send()
-                .then( |result| async move { match result  {
+                .then(|result| async move { match result  {
                     Err(error) => warn!(namespace, %error, "failed to delete key"),
                     Ok(result) => {
                         if !result.status().is_success() {
@@ -130,15 +131,15 @@ impl super::StorageBackend for CloudflareStorage {
                     }
                 }})
         });
-        let asset_uploads = asset.map(|upload| async move {
+        let asset_deletes = asset.map(|upload| async move {
             if let Err(error) = tokio::fs::remove_file(&upload.path).await {
                 warn!(path=?upload.path, %error, "failed to remove asset file");
             }
         });
         join!(
-            join_all(r2_uploads),
-            join_all(kv_uploads),
-            join_all(asset_uploads),
+            join_all(r2_deletes),
+            join_all(kv_deletes),
+            join_all(asset_deletes),
         );
         Ok(())
     }
@@ -173,6 +174,7 @@ impl super::StorageBackend for CloudflareStorage {
                 .push((upload.key, upload.content));
         }
         let kv_uploads = kv_pairs.into_iter().map(|(namespace, values)| {
+            debug!(keys=?values.iter().map(|(key, _)| key).collect::<Vec<_>>(), "upload kv pairs");
             let body = values.into_iter().map(|(key, content)|
                 json!({
                     "key": key,
@@ -363,6 +365,7 @@ impl super::Database for D1Database {
                             .json::<D1Response<Vec<serde_json::Value>>>()
                             .await
                             .map_err(Error::D1Transport)?;
+                        debug!(result=?response.result, statement, "deleted keys");
                         if !response.errors.is_empty() {
                             Err(Error::D1QueryFailed {
                                 error: serde_json::to_string(&response.errors).unwrap(),
@@ -374,7 +377,9 @@ impl super::Database for D1Database {
                         Ok(())
                     }
                 });
-        try_join_all(tasks).await?;
+        for task in tasks {
+            task.await?;
+        }
         Ok(())
     }
 }

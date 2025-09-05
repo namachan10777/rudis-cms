@@ -22,4 +22,4 @@ DO NOTHING;
 DELETE FROM {{ tables[0].name }}
 WHERE id NOT IN (
     SELECT value->>'{{ tables[0].id_name }}' FROM json_each(?->>'{{ tables[0].name }}')
-);
+) RETURNING id;
