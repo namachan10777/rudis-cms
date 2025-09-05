@@ -442,13 +442,13 @@ fn eager_to_section(tag: &Name, children: &[ResolverNode]) -> Option<Section> {
         ResolverNode::Eager {
             tag,
             attrs,
-            children,
+            children: title_children,
         } => {
             let level = HeadingLevel::from_tag_name(tag.as_ref())?;
             let id = attrs.get("id")?.to_str()?.to_string();
             let mut title = String::new();
             let mut content = String::new();
-            text_content(&mut title, children);
+            text_content(&mut title, title_children);
             text_content(&mut content, &children[1..]);
             Some(Section {
                 level,
@@ -459,13 +459,13 @@ fn eager_to_section(tag: &Name, children: &[ResolverNode]) -> Option<Section> {
         }
         ResolverNode::Lazy {
             keep: Keep::Heading(heading),
-            children,
+            children: title_children,
         } => {
             let level = heading.level;
             let id = heading.slug.clone();
             let mut title = String::new();
             let mut content = String::new();
-            text_content(&mut title, children);
+            text_content(&mut title, title_children);
             text_content(&mut content, &children[1..]);
             Some(Section {
                 level,
