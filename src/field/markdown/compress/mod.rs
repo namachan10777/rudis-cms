@@ -147,6 +147,7 @@ pub struct Codeblock {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct FootnoteReference {
     pub id: String,
+    pub reference: Option<usize>,
     pub content: Option<String>,
 }
 

@@ -97,8 +97,9 @@ impl<'r> Resolvers<'r> {
                 keep: KeepRaw::FootnoteReference { id },
                 ..
             } => match self.footnote.resolve(&id) {
-                Some((id, content)) => Node::Lazy {
+                Some((reference, content)) => Node::Lazy {
                     keep: Keep::FootnoteReference(FootnoteReference {
+                        reference: Some(reference),
                         id: id.to_string(),
                         content: Some(content.to_string()),
                     }),
@@ -106,7 +107,8 @@ impl<'r> Resolvers<'r> {
                 },
                 None => Node::Lazy {
                     keep: Keep::FootnoteReference(FootnoteReference {
-                        id: "?".to_string(),
+                        id: id.to_string(),
+                        reference: None,
                         content: None,
                     }),
                     children: Default::default(),

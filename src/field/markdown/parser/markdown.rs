@@ -550,8 +550,15 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
 }
 
 pub fn parse(src: &str) -> super::RichTextDocumentRaw {
-    let options =
-        pulldown_cmark::Options::all().difference(pulldown_cmark::Options::ENABLE_OLD_FOOTNOTES);
+    use pulldown_cmark::Options;
+    let options = Options::ENABLE_DEFINITION_LIST
+        | Options::ENABLE_GFM
+        | Options::ENABLE_MATH
+        | Options::ENABLE_MATH
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH;
     let mut parser = ParserImpl {
         lookahead: Default::default(),
         parser: pulldown_cmark::Parser::new_ext(src, options),
