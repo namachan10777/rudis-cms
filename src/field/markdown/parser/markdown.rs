@@ -552,6 +552,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
 pub fn parse(src: &str) -> super::RichTextDocumentRaw {
     use pulldown_cmark::Options;
     let options = Options::ENABLE_DEFINITION_LIST
+        | Options::ENABLE_TABLES
         | Options::ENABLE_GFM
         | Options::ENABLE_MATH
         | Options::ENABLE_MATH
