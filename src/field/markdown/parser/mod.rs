@@ -8,12 +8,13 @@ mod markdown;
 
 pub(crate) mod meta_parser;
 
+#[derive(Debug)]
 pub struct RichTextDocumentRaw {
     pub(crate) root: Vec<Node<KeepRaw>>,
     pub(crate) footnotes: IndexMap<String, Vec<Node<KeepRaw>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum KeepRaw {
     FootnoteReference {
         id: String,

@@ -368,7 +368,7 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             attrs: Default::default(),
             children,
         }),
-        Tag::MetadataBlock(_) => MaybeMany::none(),
+        Tag::MetadataBlock(_) => MaybeMany::one(Node::Text(Default::default())),
         Tag::Paragraph => MaybeMany::one(Node::Eager {
             tag: "p".into(),
             attrs: Default::default(),
@@ -452,7 +452,21 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
         return MaybeMany::none();
     };
     let raw = match event {
-        Event::Text(text) => Node::Text(text.into_string()),
+        Event::Text(text) => {
+            if url::Url::parse(&text).is_ok() {
+                Node::Lazy {
+                    keep: KeepRaw::Link {
+                        link_type: crate::field::markdown::LinkType::Autolink,
+                        dest_url: text.to_string(),
+                        title: text.to_string(),
+                        id: Default::default(),
+                    },
+                    children: vec![Node::Text(text.into_string())],
+                }
+            } else {
+                Node::Text(text.into_string())
+            }
+        }
         Event::Html(html) | Event::InlineHtml(html) => {
             return MaybeMany::many(raw_to_expanded(&html));
         }
