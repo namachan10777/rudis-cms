@@ -93,6 +93,7 @@ pub async fn batch(
     database: &impl job::Database,
     collection: &config::Collection,
     hasher: blake3::Hasher,
+    force: bool,
 ) -> Result<(), anyhow::Error> {
     let schema = schema::TableSchema::compile(collection)?;
     let uploads = crate::field::upload::UploadCollector::default();
@@ -124,6 +125,6 @@ pub async fn batch(
     let uploads = uploads.collect().await;
     let syncset = job::SyncSet { tables, uploads };
 
-    job::batch(storage, database, &schema, syncset).await?;
+    job::batch(storage, database, &schema, syncset, force).await?;
     Ok(())
 }

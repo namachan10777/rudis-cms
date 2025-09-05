@@ -9,7 +9,7 @@ use futures::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::{field::StoragePointer, sql};
 
@@ -69,6 +69,14 @@ impl CloudflareStorage {
             token: cf_api_token.into(),
         }
     }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct KvResult {
+    success: bool,
+    result: serde_json::Value,
+    messages: Vec<serde_json::Value>,
+    errors: Vec<serde_json::Value>,
 }
 
 impl super::StorageBackend for CloudflareStorage {
@@ -186,16 +194,17 @@ impl super::StorageBackend for CloudflareStorage {
                     }
                 ),
                 Ok(response) => {
-                    if response.status().is_success() {
+                    let msg = response.json::<KvResult>().await.map_err(|error|
+                        Error::KvTransport {
+                            namespace: namespace.clone(),
+                            error: error.to_string(),
+                        })?;
+                    if msg.success {
+                        trace!(?msg, "kv success");
                         Ok(())
                     }
                     else {
-                        let msg = response.text().await.map_err(|error|
-                            Error::KvTransport {
-                                namespace: namespace.clone(),
-                                error: error.to_string(),
-                            })?;
-                        Err(Error::KvUploadFailed { namespace, msg })
+                        Err(Error::KvUploadFailed { namespace, msg: serde_json::to_string(&msg).unwrap() })
                     }
                 }
             }})

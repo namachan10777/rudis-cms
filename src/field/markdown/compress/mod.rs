@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use indexmap::IndexMap;
+use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
 
 use crate::field::{
@@ -140,6 +141,7 @@ pub struct LinkCard {
 pub struct Codeblock {
     pub lang: Option<String>,
     pub title: Option<String>,
+    pub lines: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -149,7 +151,7 @@ pub struct FootnoteReference {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Keep {
     Heading(Heading),
     Image(Image),
@@ -165,22 +167,51 @@ pub enum Node {
     KeepLazy {
         keep: Keep,
         children: Vec<Node>,
+        hash: String,
     },
     KeepEager {
         keep: Keep,
         content: String,
+        hash: String,
     },
     Lazy {
         tag: Name,
         attrs: IndexMap<Name, AttrValue>,
         children: Vec<Node>,
+        hash: String,
     },
     Eager {
         tag: Name,
         attrs: IndexMap<Name, AttrValue>,
         content: String,
+        hash: String,
     },
-    Text(String),
+    Text {
+        text: String,
+        hash: String,
+    },
+}
+
+impl Node {
+    fn hash(&self) -> &str {
+        match self {
+            Node::KeepLazy { hash, .. } => hash,
+            Node::KeepEager { hash, .. } => hash,
+            Node::Lazy { hash, .. } => hash,
+            Node::Eager { hash, .. } => hash,
+            Node::Text { hash, .. } => hash,
+        }
+    }
+
+    fn shrink_hash(&mut self, len: usize) {
+        match self {
+            Node::KeepLazy { hash, .. } => hash.truncate(len),
+            Node::KeepEager { hash, .. } => hash.truncate(len),
+            Node::Lazy { hash, .. } => hash.truncate(len),
+            Node::Eager { hash, .. } => hash.truncate(len),
+            Node::Text { hash, .. } => hash.truncate(len),
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -243,14 +274,77 @@ fn write_attrs<W: std::fmt::Write>(
     Ok(())
 }
 
+fn compare_str(a: &str, b: &str) -> std::cmp::Ordering {
+    a.chars()
+        .zip_longest(b.chars())
+        .find_map(|pair| match pair {
+            EitherOrBoth::Left(_) => Some(std::cmp::Ordering::Greater),
+            EitherOrBoth::Right(_) => Some(std::cmp::Ordering::Less),
+            EitherOrBoth::Both(a, b) => {
+                if a == b {
+                    None
+                } else if a > b {
+                    Some(std::cmp::Ordering::Greater)
+                } else {
+                    Some(std::cmp::Ordering::Less)
+                }
+            }
+        })
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn common_prefix_length(a: &str, b: &str) -> usize {
+    a.chars()
+        .zip(b.chars())
+        .take_while(|(a, b)| *a == *b)
+        .count()
+}
+
+fn shortest_unique_length(strings: &mut [&str]) -> usize {
+    strings.sort_by(|a, b| compare_str(*a, *b));
+    strings
+        .iter()
+        .tuple_windows()
+        .map(|(a, b)| common_prefix_length(a, b))
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_compare_str() {
+        assert_eq!(compare_str("alpha", "alpha"), std::cmp::Ordering::Equal);
+        assert_eq!(compare_str("alpha0", "alpha1"), std::cmp::Ordering::Less);
+        assert_eq!(compare_str("alpha1", "alpha0"), std::cmp::Ordering::Greater);
+        assert_eq!(compare_str("alpha", "alpha0"), std::cmp::Ordering::Less);
+        assert_eq!(compare_str("alpha0", "alpha"), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_shortest_unique_length() {
+        assert_eq!(
+            shortest_unique_length(&mut ["sakana_zaurus", "koneko_zaurus", "sakana_wanko"]),
+            8
+        );
+    }
+}
+
 fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragment {
     let mut out = Vec::new();
+    let mut hasher = blake3::Hasher::new();
     children.into_iter().for_each(|node| match node {
         ResolverNode::Text(text) => {
-            if let Some(Node::Text(prev)) = out.last_mut() {
+            hasher.update(text.as_bytes());
+            if let Some(Node::Text { text: prev, .. }) = out.last_mut() {
                 prev.push_str(&text);
             } else {
-                out.push(Node::Text(text));
+                out.push(Node::Text {
+                    text,
+                    hash: hasher.finalize().to_string(),
+                });
             }
         }
         ResolverNode::Eager {
@@ -259,13 +353,18 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
             children,
         } => match compress_children(children) {
             Fragment::Tree { children } => {
+                children.iter().for_each(|node| {
+                    hasher.update(node.hash().as_bytes());
+                });
                 out.push(Node::Lazy {
                     tag,
                     attrs,
                     children,
+                    hash: hasher.finalize().to_string(),
                 });
             }
             Fragment::Html { content } => out.push(Node::Eager {
+                hash: hasher.update(content.as_bytes()).finalize().to_string(),
                 tag,
                 attrs,
                 content,
@@ -273,24 +372,36 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
         },
         ResolverNode::Lazy { keep, children } => match compress_children(children) {
             Fragment::Tree { children } => {
-                out.push(Node::KeepLazy { keep, children });
+                children.iter().for_each(|node| {
+                    hasher.update(node.hash().as_bytes());
+                });
+                out.push(Node::KeepLazy {
+                    keep,
+                    children,
+                    hash: hasher.finalize().to_string(),
+                });
             }
             Fragment::Html { content } => {
-                out.push(Node::KeepEager { keep, content });
+                out.push(Node::KeepEager {
+                    keep,
+                    hash: hasher.update(content.as_bytes()).finalize().to_string(),
+                    content,
+                });
             }
         },
     });
     if out
         .iter()
-        .all(|node| matches!(node, Node::Text(_) | Node::Eager { .. }))
+        .all(|node| matches!(node, Node::Text { .. } | Node::Eager { .. }))
     {
         let mut out_string = String::new();
         out.iter().for_each(|node| match node {
-            Node::Text(text) => out_string.push_str(text),
+            Node::Text { text, .. } => out_string.push_str(text),
             Node::Eager {
                 tag,
                 attrs,
                 content,
+                ..
             } => {
                 if content.is_empty() {
                     write!(out_string, "<{tag}").unwrap();
@@ -308,12 +419,16 @@ fn compress_children(children: impl IntoIterator<Item = ResolverNode>) -> Fragme
             content: out_string,
         }
     } else {
+        let mut hashes = out.iter().map(|node| node.hash()).collect::<Vec<_>>();
+        let truncate_to = shortest_unique_length(&mut hashes);
+        out.iter_mut()
+            .for_each(|truncate_hash| truncate_hash.shrink_hash(truncate_to));
         Fragment::Tree { children: out }
     }
 }
 
 #[derive(Serialize, Debug)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Fragment {
     Html { content: String },
     Tree { children: Vec<Node> },

@@ -108,6 +108,7 @@ pub async fn batch<S, D, ES, ED>(
     db: &D,
     schema: &schema::CollectionSchema,
     set: SyncSet,
+    force: bool,
 ) -> Result<(), Error<ES, ED>>
 where
     S: StorageBackend<Error = ES>,
@@ -122,24 +123,24 @@ where
         .map_err(Error::Database)?;
     info!(len = present_objects.len(), "present object hash fetched");
     let r2 = r2.into_iter().filter_map(|(hash, obj)| {
-        if present_objects.contains_key(&hash) {
-            None
-        } else {
+        if force || !present_objects.contains_key(&hash) {
             Some(obj)
+        } else {
+            None
         }
     });
     let kv = kv.into_iter().filter_map(|(hash, obj)| {
-        if present_objects.contains_key(&hash) {
-            None
-        } else {
+        if force || !present_objects.contains_key(&hash) {
             Some(obj)
+        } else {
+            None
         }
     });
     let asset = asset.into_iter().filter_map(|(hash, obj)| {
-        if present_objects.contains_key(&hash) {
-            None
-        } else {
+        if force || !present_objects.contains_key(&hash) {
             Some(obj)
+        } else {
+            None
         }
     });
     backend

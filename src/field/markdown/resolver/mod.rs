@@ -80,6 +80,7 @@ impl<'r> Resolvers<'r> {
             } => {
                 let mut code = String::new();
                 text_content(&mut code, &children);
+                let lines = code.lines().count();
                 let code = match codeblock::highlight(&code, &meta.lang) {
                     Ok(html) => html,
                     Err(err) => format!("<pre><code>{}</code></pre>", err),
@@ -88,6 +89,7 @@ impl<'r> Resolvers<'r> {
                 Node::Lazy {
                     keep: Keep::Codeblock(Codeblock {
                         lang: meta.lang,
+                        lines,
                         title: meta
                             .attrs
                             .get("title")

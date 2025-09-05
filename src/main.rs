@@ -11,7 +11,10 @@ use tracing::error;
 #[derive(clap::Subcommand)]
 enum SubCommand {
     ShowSchema,
-    Batch,
+    Batch {
+        #[clap(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(clap::Parser)]
@@ -35,7 +38,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        SubCommand::Batch => {
+        SubCommand::Batch { force } => {
             let mut hasher = blake3::Hasher::new();
             let config = tokio::fs::read_to_string(&opts.config).await?;
             hasher.update(config.as_bytes());
@@ -61,7 +64,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     &collection.database_id,
                 );
 
-                rudis_cms::batch(&storage, &database, collection, hasher.clone()).await?;
+                rudis_cms::batch(&storage, &database, collection, hasher.clone(), force).await?;
             }
             Ok(())
         }
