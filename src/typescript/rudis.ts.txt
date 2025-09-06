@@ -11,28 +11,32 @@ export type MarkdownNode<K> =
       tag: string;
       attrs: Record<string, string | number | boolean>;
       content: string;
+      hash: string;
     }
   | {
       type: "lazy";
       tag: string;
       attrs: Record<string, string | number | boolean>;
       children: MarkdownNode<K>[];
+      hash: string;
     }
   | {
       type: "keep_eager";
       keep: K;
       content: string;
+      hash: string;
     }
   | {
       type: "keep_lazy";
       keep: K;
       children: MarkdownNode<K>[];
+      hash: string;
     };
 
 export type MarkdownRoot<K> =
   | {
       type: "tree";
-      children: MarkdownNode<K>;
+      children: MarkdownNode<K>[];
     }
   | {
       type: "html";

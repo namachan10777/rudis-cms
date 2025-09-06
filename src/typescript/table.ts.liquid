@@ -65,10 +65,22 @@ export const table = v.object({
   ),
     {%- endif %}
   {%- elsif column.kind == "primitive" %}
-    {%- if column.nullable %}
-  {{ column.name }}: v.nullable(v.{{ column.type }}()),
+    {%- if column.type == "boolean" %}
+      {%- if column.nullable %}
+  {{ column.name }}: v.pipe(
+    v.nullable(v.number()),
+    v.transform((value) => value === null ? null : value === 1),
+    v.nullable(v.boolean()),
+  ),
+      {%- else %}
+  {{ column.name }}: v.pipe(v.number(), v.transform((value) => value === 1), v.boolean()),
+      {%- endif %}
     {%- else %}
+      {%- if column.nullable %}
+  {{ column.name }}: v.nullable(v.{{ column.type }}()),
+      {%- else %}
   {{ column.name }}: v.{{ column.type }}(),
+      {%- endif %}
     {%- endif %}
   {%- elsif column.kind == "datetime" %}
     {%- if column.nullable %}
