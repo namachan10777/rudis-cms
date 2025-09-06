@@ -9,8 +9,27 @@ use rudis_cms::{
 use tracing::error;
 
 #[derive(clap::Subcommand)]
+enum ShowSchemaCommand {
+    Sql {
+        #[clap(short, long, required_unless_present = "save")]
+        print: bool,
+        #[clap(short, long)]
+        save: Option<PathBuf>,
+    },
+    Typescript {
+        #[clap(short, long, required_unless_present = "save")]
+        print: bool,
+        #[clap(short, long)]
+        save: Option<PathBuf>,
+    },
+}
+
+#[derive(clap::Subcommand)]
 enum SubCommand {
-    ShowSchema,
+    ShowSchema {
+        #[clap(subcommand)]
+        cmd: ShowSchemaCommand,
+    },
     Batch {
         #[clap(short, long)]
         force: bool,
@@ -27,14 +46,55 @@ struct Opts {
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
-        SubCommand::ShowSchema => {
+        SubCommand::ShowSchema { cmd } => {
             let config = tokio::fs::read_to_string(&opts.config).await?;
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
-            for (name, collection) in &config {
-                let schema = schema::TableSchema::compile(collection)?;
-                let liquid_ctx = liquid_default_context(&schema);
-                println!("-- Table: {}", name);
-                println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());
+            match cmd {
+                ShowSchemaCommand::Sql { print, ref save } => {
+                    for (name, collection) in &config {
+                        let schema = schema::TableSchema::compile(collection)?;
+                        let liquid_ctx = liquid_default_context(&schema);
+                        if print {
+                            println!("-- Table: {}", name);
+                            println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());
+                        }
+                        if let Some(base) = save {
+                            tokio::fs::create_dir_all(base).await?;
+                            let path = base.join(name);
+                            let sql = SQL_DDL.render(&liquid_ctx).unwrap();
+                            tokio::fs::write(&path, sql).await?;
+                        }
+                    }
+                }
+                ShowSchemaCommand::Typescript { print, ref save } => {
+                    if print {
+                        for (name, collection) in &config {
+                            let schema = schema::TableSchema::compile(collection)?;
+                            let files = rudis_cms::typescript::render(&schema);
+                            for (_, content) in &files {
+                                println!("// {name}");
+                                print!("{content}");
+                            }
+                        }
+                    }
+                    if let Some(basedir) = save {
+                        tokio::fs::create_dir_all(basedir).await?;
+                        tokio::fs::write(
+                            basedir.join("rudis.ts"),
+                            rudis_cms::typescript::RUDIS_TYPE_LIB,
+                        )
+                        .await?;
+                        for (name, collection) in &config {
+                            let schema = schema::TableSchema::compile(collection)?;
+                            let files = rudis_cms::typescript::render(&schema);
+                            tokio::fs::create_dir_all(basedir.join(name)).await?;
+                            for (filename, content) in &files {
+                                let path = basedir.join(name).join(filename);
+                                tokio::fs::write(&path, content).await?;
+                            }
+                        }
+                    }
+                }
             }
             Ok(())
         }

@@ -12,6 +12,7 @@ pub mod job;
 pub mod schema;
 pub mod sql;
 pub mod table;
+pub mod typescript;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {detail}")]

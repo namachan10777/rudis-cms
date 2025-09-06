@@ -32,7 +32,7 @@ pub struct TableSchema {
     pub(crate) hash_name: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CollectionSchema {
     pub(crate) tables: IndexMap<String, TableSchema>,
 }
@@ -78,10 +78,13 @@ pub(crate) enum FieldType {
         image: config::MarkdownImageConfig,
         config: config::MarkdownConfig,
         storage: config::MarkdownStorage,
+        image_table: Box<TableSchema>,
+        frontmatter: IndexMap<String, FieldType>,
     },
     Records {
         table: String,
         required: bool,
+        schema: Box<TableSchema>,
     },
 }
 
@@ -99,13 +102,12 @@ impl ParentTable {
 }
 
 impl TableSchema {
-    fn add_table(
-        tables: &mut IndexMap<String, Self>,
+    fn construct_schema_tree(
         parent: Option<ParentTable>,
         schema: &IndexMap<String, config::Field>,
         inherit_ids: Vec<String>,
         table: String,
-    ) -> Result<(), Error> {
+    ) -> Result<TableSchema, Error> {
         let id_name = schema
             .iter()
             .find_map(|(name, def)| {
@@ -118,7 +120,7 @@ impl TableSchema {
             .ok_or(Error::IdUndefined)?;
         let mut hash_name = None;
         let self_as_parent = ParentTable::as_parent(&inherit_ids, &id_name, &table);
-        let fields = schema
+        let mut fields: IndexMap<String, FieldType> = schema
             .iter()
             .map(|(name, def)| {
                 let field = match &def {
@@ -157,24 +159,23 @@ impl TableSchema {
                         image,
                         config,
                     } => {
-                        tables.insert(
-                            image.table.clone(),
-                            TableSchema {
-                                parent: Some(self_as_parent.clone()),
-                                inherit_ids: image.inherit_ids.clone(),
-                                id_name: "src_id".to_string(),
-                                hash_name: None,
-                                fields: indexmap! {
-                                    "src_id".to_string() => FieldType::Id,
-                                    "image".to_string() => FieldType::Image { required: true, storage: image.storage.clone() },
-                                },
+                        let image_table = TableSchema {
+                            parent: Some(self_as_parent.clone()),
+                            inherit_ids: image.inherit_ids.clone(),
+                            id_name: "src_id".to_string(),
+                            hash_name: None,
+                            fields: indexmap! {
+                                "src_id".to_string() => FieldType::Id,
+                                "image".to_string() => FieldType::Image { required: true, storage: image.storage.clone() },
                             },
-                        );
+                        };
                         FieldType::Markdown {
                             required: *required,
                             storage: storage.clone(),
                             image: image.clone(),
                             config: config.clone(),
+                            image_table: Box::new(image_table),
+                            frontmatter: Default::default()
                         }
                     }
                     config::Field::Image { required, storage } => FieldType::Image {
@@ -192,45 +193,70 @@ impl TableSchema {
                         table: child_table,
                         ..
                     } => {
-                        Self::add_table(
-                            tables,
-                            Some(self_as_parent.clone()),
-                            schema,
-                            inherit_ids.clone(),
-                            child_table.clone(),
-                        )?;
                         FieldType::Records {
                             table: child_table.clone(),
                             required: *required,
+                            schema: Box::new(
+                                Self::construct_schema_tree(
+                                    Some(self_as_parent.clone()),
+                                    schema,
+                                    inherit_ids.clone(),
+                                    child_table.clone(),
+                                )?
+                            )
                         }
                     }
                 };
                 Ok((name.clone(), field))
             })
             .collect::<Result<_, _>>()?;
-        tables.insert(
-            table,
-            Self {
-                parent,
-                id_name,
-                hash_name,
-                fields,
-                inherit_ids,
-            },
-        );
-        Ok(())
+        let mut frontmatter_fields = Vec::<(String, FieldType)>::new();
+        for (name, field) in fields.iter() {
+            frontmatter_fields.push((name.clone(), field.clone()));
+        }
+        for field in fields.values_mut() {
+            if let FieldType::Markdown { frontmatter, .. } = field {
+                for (key, value) in &frontmatter_fields {
+                    frontmatter.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        Ok(Self {
+            parent,
+            id_name,
+            hash_name,
+            fields,
+            inherit_ids,
+        })
+    }
+
+    fn collect_table_schema(tables: &mut IndexMap<String, TableSchema>, root: &TableSchema) {
+        for field in root.fields.values() {
+            match field {
+                FieldType::Markdown {
+                    image, image_table, ..
+                } => {
+                    tables.insert(image.table.clone(), image_table.as_ref().clone());
+                }
+                FieldType::Records { table, schema, .. } => {
+                    tables.insert(table.clone(), schema.as_ref().clone());
+                    Self::collect_table_schema(tables, schema);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn compile(config: &config::Collection) -> Result<CollectionSchema, Error> {
         let mut tables = IndexMap::new();
-        Self::add_table(
-            &mut tables,
+        let root = Self::construct_schema_tree(
             None,
             &config.schema,
             Default::default(),
             config.table.clone(),
         )?;
-        tables.reverse();
+        tables.insert(config.table.clone(), root.clone());
+        Self::collect_table_schema(&mut tables, &root);
         Ok(CollectionSchema { tables })
     }
 
