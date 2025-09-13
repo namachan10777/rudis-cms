@@ -46,12 +46,12 @@ indexmap = { version = "2", features = ["serde"] }
 data-url = "0.3"
 urlencoding = "2"
 blurhash = "0.2"
-rusqlite = "0.37"
+rusqlite = {version="0.37", features = ["bundled"]}
 mime_guess = "2"
 mime = "0.3"
 bincode = { version = "2", features = ["serde"] }
 crossbeam = { version = "0.8", features = ["crossbeam-queue"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls-webpki-roots"], default-features = false }
 html-escape = "0.2"
 stringcase = "0.4"
