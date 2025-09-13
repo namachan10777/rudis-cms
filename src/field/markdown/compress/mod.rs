@@ -302,7 +302,7 @@ fn common_prefix_length(a: &str, b: &str) -> usize {
 }
 
 fn shortest_unique_length(strings: &mut [&str]) -> usize {
-    strings.sort_by(|a, b| compare_str(*a, *b));
+    strings.sort_by(|a, b| compare_str(a, b));
     strings
         .iter()
         .tuple_windows()

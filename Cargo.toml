@@ -3,13 +3,9 @@ name = "rudis-cms"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = ["r2"]
-r2 = ["dep:aws-config", "dep:aws-sdk-s3"]
-
 [dependencies]
-aws-config = { version = "1.8", optional = true }
-aws-sdk-s3 = { version = "1", optional = true }
+aws-config = { version = "1.8" }
+aws-sdk-s3 = { version = "1" }
 
 anyhow = "1"
 blake3 = { version = "1.8", features = ["serde"] }
