@@ -6,6 +6,7 @@ use tracing::trace;
 
 use crate::field::{CompoundId, object_loader};
 
+pub mod cloudflare;
 pub mod config;
 pub mod field;
 pub mod job;

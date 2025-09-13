@@ -55,3 +55,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls-webpki-roots"], default-features = false }
 html-escape = "0.2"
 stringcase = "0.4"
+base64 = "0.22"

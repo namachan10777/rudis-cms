@@ -3239,7 +3239,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.31",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -3276,9 +3276,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3552,6 +3552,7 @@ dependencies = [
  "async-channel",
  "aws-config",
  "aws-sdk-s3",
+ "base64 0.22.1",
  "bincode 2.0.1",
  "blake3",
  "blocking",
