@@ -6,16 +6,14 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   create-release:
-    permissions:
-      contents: write
-      pull-requests: write
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
@@ -45,6 +43,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install musl tools
+        run: sudo apt install -qq -y musl-tools --no-install-recommends
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,7 +58,7 @@ jobs:
         run: cargo build --release --all-features --target=x86_64-unknown-linux-musl
 
       - name: Strip binary
-        run: strip target/release/rudis-cms
+        run: strip target/x86_64-unknown-linux-musl/release/rudis-cms
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
@@ -65,6 +66,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/release/rudis-cms
+          asset_path: target/x86_64-unknown-linux-musl/release/rudis-cms
           asset_name: rudis-cms-linux-amd64
           asset_content_type: application/octet-stream
