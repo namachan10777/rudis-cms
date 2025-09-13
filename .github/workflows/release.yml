@@ -5,11 +5,17 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   create-release:
+    permissions:
+      contents: write
+      pull-requests: write
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
