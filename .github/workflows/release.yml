@@ -47,12 +47,14 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release --all-features
+        run: cargo build --release --all-features --target=x86_64-unknown-linux-musl
 
       - name: Strip binary
         run: strip target/release/rudis-cms
