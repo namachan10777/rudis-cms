@@ -1,0 +1,4 @@
+DELETE FROM {{ table }}
+WHERE id NOT IN (
+    SELECT value->>'{{ id }}' FROM json_each(?->>'{{ table }}')
+);

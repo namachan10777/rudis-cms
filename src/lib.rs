@@ -6,12 +6,11 @@ use tracing::trace;
 
 use crate::field::{CompoundId, object_loader};
 
-pub mod cloudflare;
 pub mod config;
+pub mod deploy;
 pub mod field;
 pub mod job;
 pub mod schema;
-pub mod sql;
 pub mod table;
 pub mod typescript;
 

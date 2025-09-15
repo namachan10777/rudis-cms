@@ -1,0 +1,142 @@
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
+use url::Url;
+use valuable::Valuable;
+
+use crate::job;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Transport error: {0}")]
+    Transport(reqwest::Error),
+    #[error("Query failed: {errors:?} {messages:?} ")]
+    QueryFailed {
+        errors: Vec<super::ResponseInfo>,
+        messages: Vec<super::ResponseInfo>,
+    },
+    #[error("Empty result: {errors:?} {messages:?}")]
+    EmptyResult {
+        errors: Vec<super::ResponseInfo>,
+        messages: Vec<super::ResponseInfo>,
+    },
+}
+
+pub struct Client {
+    token: String,
+    client: reqwest::Client,
+    url: Url,
+}
+
+#[derive(Serialize)]
+struct Request<'a, P> {
+    query: &'a str,
+    params: &'a [&'a P],
+}
+
+#[derive(Deserialize, Valuable)]
+enum Region {
+    #[serde(rename = "WNAM")]
+    WesternNorthAmerica,
+    #[serde(rename = "ENAM")]
+    EasternNorthAmerica,
+    #[serde(rename = "WEUR")]
+    WesternEurope,
+    #[serde(rename = "EEUR")]
+    EasternEurope,
+    #[serde(rename = "APAC")]
+    AsiaPasific,
+    #[serde(rename = "OC")]
+    Oceania,
+}
+
+#[derive(Deserialize, Valuable)]
+struct QueryResultMetaTimings {
+    sql_duration_ms: Option<u64>,
+}
+
+#[derive(Deserialize, Valuable)]
+struct QueryResultMeta {
+    changed_db: Option<bool>,
+    changes: Option<bool>,
+    duration: Option<u64>,
+    last_row_id: Option<u64>,
+    rows_read: Option<u64>,
+    rows_written: Option<u64>,
+    served_primary: Option<bool>,
+    served_by_region: Option<Region>,
+    size_after: Option<u64>,
+    timings: Option<QueryResultMetaTimings>,
+}
+
+#[derive(Deserialize)]
+struct QueryResult<R> {
+    meta: QueryResultMeta,
+    results: Vec<R>,
+    success: Option<bool>,
+}
+
+impl Client {
+    pub fn new(
+        account_id: String,
+        token: String,
+        database: String,
+    ) -> Result<Self, url::ParseError> {
+        Ok(Self {
+            token,
+            url: format!("https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database}/query").parse()?,
+            client: reqwest::Client::new(),
+        })
+    }
+}
+
+impl job::storage::sqlite::Client for Client {
+    type Error = Error;
+    async fn query<R: serde::de::DeserializeOwned, P: job::storage::sqlite::Param>(
+        &self,
+        statement: &str,
+        params: &[&P],
+    ) -> Result<Vec<R>, Self::Error> {
+        let mut response = self
+            .client
+            .post(self.url.clone())
+            .bearer_auth(&self.token)
+            .json(&Request {
+                query: statement,
+                params,
+            })
+            .send()
+            .await
+            .map_err(Error::Transport)?
+            .json::<super::Response<Vec<QueryResult<R>>>>()
+            .await
+            .map_err(Error::Transport)?;
+        if !response.success {
+            warn!(
+                errors = response.errors.as_value(),
+                messages = response.messages.as_value(),
+                "failed to execute query"
+            );
+            return Err(Error::QueryFailed {
+                errors: response.errors,
+                messages: response.messages,
+            });
+        }
+        let Some(result) = response.result.pop() else {
+            warn!(
+                messages = response.messages.as_value(),
+                errors = response.errors.as_value(),
+                "empty query result"
+            );
+            return Err(Error::EmptyResult {
+                errors: response.errors,
+                messages: response.messages,
+            });
+        };
+        debug!(
+            messages = response.messages.as_value(),
+            meta = result.meta.as_value(),
+            "query succeeded"
+        );
+        Ok(result.results)
+    }
+}

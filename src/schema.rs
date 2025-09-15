@@ -264,3 +264,39 @@ impl TableSchema {
         self.fields.len() == 1
     }
 }
+
+impl FieldType {
+    pub fn is_required_field(&self) -> bool {
+        match self {
+            Self::Boolean { required, .. } => *required,
+            Self::Date { required, .. } => *required,
+            Self::Datetime { required, .. } => *required,
+            Self::File { required, .. } => *required,
+            Self::Hash => true,
+            Self::Image { required, .. } => *required,
+            Self::Integer { required, .. } => *required,
+            Self::String { required, .. } => *required,
+            Self::Markdown { required, .. } => *required,
+            Self::Id => false,
+            Self::Real { required, .. } => *required,
+            Self::Records { required, .. } => *required,
+        }
+    }
+
+    pub fn requires_index(&self) -> bool {
+        match self {
+            Self::Boolean { index, .. } => *index,
+            Self::Date { index, .. } => *index,
+            Self::Datetime { index, .. } => *index,
+            Self::File { .. } => false,
+            Self::Hash => true,
+            Self::Image { .. } => false,
+            Self::Integer { index, .. } => *index,
+            Self::String { index, .. } => *index,
+            Self::Markdown { .. } => false,
+            Self::Id => true,
+            Self::Real { index, .. } => *index,
+            Self::Records { .. } => false,
+        }
+    }
+}
