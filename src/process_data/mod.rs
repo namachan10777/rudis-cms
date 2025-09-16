@@ -7,7 +7,7 @@ use base64::Engine;
 use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{self, Storage};
+use crate::config;
 
 pub mod markdown;
 pub mod object_loader;
@@ -239,7 +239,7 @@ impl<M> ObjectReference<M> {
                     id.to_string()
                 };
                 if let Some(suffix) = suffix {
-                    write!(key, "/{suffix}");
+                    write!(key, "/{suffix}").unwrap();
                 }
                 let pointer = StoragePointer::Kv {
                     namespace: namespace.clone(),
@@ -261,7 +261,7 @@ impl<M> ObjectReference<M> {
                     id.to_string()
                 };
                 if let Some(suffix) = suffix {
-                    write!(key, "/{suffix}");
+                    write!(key, "/{suffix}").unwrap();
                 }
                 let pointer = StoragePointer::R2 {
                     bucket: bucket.clone(),

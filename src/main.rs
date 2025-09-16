@@ -1,4 +1,4 @@
-use std::{os::unix::process::parent_id, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 use futures::future::try_join_all;
@@ -13,6 +13,8 @@ enum ShowSchemaCommand {
         print: bool,
         #[clap(short, long)]
         save: Option<PathBuf>,
+        #[clap(short, long)]
+        valibot: bool,
     },
 }
 
@@ -42,27 +44,15 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config = tokio::fs::read_to_string(&opts.config).await?;
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
             match cmd {
-                ShowSchemaCommand::Sql { print, ref save } => {
-                    for (name, collection) in &config {
-                        let schema = schema::TableSchema::compile(collection)?;
-                        let liquid_ctx = liquid_default_context(&schema);
-                        if print {
-                            println!("-- Table: {}", name);
-                            println!("{}", SQL_DDL.render(&liquid_ctx).unwrap());
-                        }
-                        if let Some(base) = save {
-                            tokio::fs::create_dir_all(base).await?;
-                            let path = base.join(name);
-                            let sql = SQL_DDL.render(&liquid_ctx).unwrap();
-                            tokio::fs::write(&path, sql).await?;
-                        }
-                    }
-                }
-                ShowSchemaCommand::Typescript { print, ref save } => {
+                ShowSchemaCommand::Typescript {
+                    print,
+                    ref save,
+                    valibot,
+                } => {
                     if print {
                         for (name, collection) in &config {
                             let schema = schema::TableSchema::compile(collection)?;
-                            let files = rudis_cms::typescript::render(&schema);
+                            let files = rudis_cms::typescript::file_map(&schema, name, valibot);
                             for (_, content) in &files {
                                 println!("// {name}");
                                 print!("{content}");
@@ -71,14 +61,9 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     }
                     if let Some(basedir) = save {
                         tokio::fs::create_dir_all(basedir).await?;
-                        tokio::fs::write(
-                            basedir.join("rudis.ts"),
-                            rudis_cms::typescript::RUDIS_TYPE_LIB,
-                        )
-                        .await?;
                         for (name, collection) in &config {
                             let schema = schema::TableSchema::compile(collection)?;
-                            let files = rudis_cms::typescript::render(&schema);
+                            let files = rudis_cms::typescript::file_map(&schema, name, valibot);
                             tokio::fs::create_dir_all(basedir.join(name)).await?;
                             for (filename, content) in &files {
                                 let path = basedir.join(name).join(filename);
@@ -93,7 +78,8 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
         SubCommand::Batch { force } => {
             let mut hasher = blake3::Hasher::new();
             let config = tokio::fs::read_to_string(&opts.config).await?;
-            let basedir = opts.config.canonicalize()?.parent();
+            let config_path = opts.config.canonicalize()?;
+            let basedir = config_path.parent();
             hasher.update(config.as_bytes());
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
 
@@ -124,22 +110,24 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 }
                 let schema = schema::TableSchema::compile(collection)?;
 
-                let tasks = glob::glob(&collection.glob)?
-                    .into_iter()
-                    .map(|path| async move {
+                let tasks = glob::glob(&collection.glob)?.into_iter().map(|path| {
+                    let hasher = hasher.clone();
+                    let schema = &schema;
+                    async move {
                         let path = path?;
                         rudis_cms::process_data::table::push_rows_from_document(
                             &collection.table,
                             hasher,
-                            &schema,
+                            schema,
                             &collection.syntax,
                             path,
                         )
                         .await
                         .map_err(anyhow::Error::from)
-                    });
+                    }
+                });
                 let mut tables = IndexMap::<_, Vec<_>>::new();
-                let mut uploads = Default::default();
+                let mut uploads = Vec::default();
                 for (table_flakes, mut upload_flakes) in try_join_all(tasks).await? {
                     for (table, mut rows) in table_flakes {
                         tables.entry(table).or_default().append(&mut rows);

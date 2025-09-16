@@ -1,6 +1,7 @@
 blog:
   glob: "**/*.md"
   table: posts
+  database_id: xxx
   syntax:
     type: markdown
     column: body
@@ -13,6 +14,7 @@ blog:
       type: markdown
       image:
         table: post_images
+        inherit_ids: [post_id]
         embed_svg_threshold: 8192
         storage:
           type: r2

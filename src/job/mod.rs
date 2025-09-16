@@ -10,7 +10,7 @@ mod sql;
 pub mod storage;
 
 use crate::{
-    process_data::{self, StorageContent, StoragePointer, table},
+    process_data::{self, StorageContent, StoragePointer},
     schema,
 };
 
@@ -95,11 +95,6 @@ pub trait Database {
     ) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
-pub struct SyncSet {
-    pub(crate) tables: table::Tables,
-    pub(crate) uploads: Vec<(StoragePointer, Vec<u8>)>,
-}
-
 pub struct JobExecutor<D, K, R, A> {
     pub d1: D,
     pub kv: K,
@@ -126,32 +121,6 @@ where
     use std::str::FromStr as _;
     let s = String::deserialize(deserializer)?;
     blake3::Hash::from_str(&s).map_err(serde::de::Error::custom)
-}
-
-fn kv_delete_mask<'a>(uploads: impl Iterator<Item = &'a KvUpload>) -> HashSet<KvDelete> {
-    uploads
-        .map(|obj| KvDelete {
-            namespace: obj.namespace.clone(),
-            key: obj.key.clone(),
-        })
-        .collect::<HashSet<_>>()
-}
-
-fn objstore_delete_mask<'a>(uploads: impl Iterator<Item = &'a R2Upload>) -> HashSet<R2Delete> {
-    uploads
-        .map(|obj| R2Delete {
-            bucket: obj.bucket.clone(),
-            key: obj.key.clone(),
-        })
-        .collect::<HashSet<_>>()
-}
-
-fn asset_delete_mask<'a>(uploads: impl Iterator<Item = &'a AssetUpload>) -> HashSet<AssetDelete> {
-    uploads
-        .map(|obj| AssetDelete {
-            path: obj.path.clone(),
-        })
-        .collect::<HashSet<_>>()
 }
 
 fn filter_uploads<T>(
@@ -351,6 +320,11 @@ impl<
         Ok(())
     }
 
+    async fn create_tables_if_not_exist(&self, sqls: &sql::SqlStatements) -> Result<(), D::Error> {
+        self.d1.query::<(), &str>(&sqls.ddl, &[]).await?;
+        Ok(())
+    }
+
     pub async fn batch(
         &self,
         schema: &schema::CollectionSchema,
@@ -359,6 +333,9 @@ impl<
         force: bool,
     ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>> {
         let ctx = sql::SqlStatements::new(schema);
+        self.create_tables_if_not_exist(&ctx)
+            .await
+            .map_err(JobError::Database)?;
         let present_objects = self.fetch_objects_metadata(&ctx).await?;
         let delete_mask = uploads
             .iter()

@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum Storage {
     R2 {
         bucket: String,
