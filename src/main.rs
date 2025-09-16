@@ -1,21 +1,13 @@
-use std::path::PathBuf;
+use std::{os::unix::process::parent_id, path::PathBuf};
 
 use clap::Parser;
+use futures::future::try_join_all;
 use indexmap::IndexMap;
-use rudis_cms::{
-    config, schema,
-    sql::{SQL_DDL, liquid_default_context},
-};
+use rudis_cms::{config, schema};
 use tracing::error;
 
 #[derive(clap::Subcommand)]
 enum ShowSchemaCommand {
-    Sql {
-        #[clap(short, long, required_unless_present = "save")]
-        print: bool,
-        #[clap(short, long)]
-        save: Option<PathBuf>,
-    },
     Typescript {
         #[clap(short, long, required_unless_present = "save")]
         print: bool,
@@ -101,6 +93,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
         SubCommand::Batch { force } => {
             let mut hasher = blake3::Hasher::new();
             let config = tokio::fs::read_to_string(&opts.config).await?;
+            let basedir = opts.config.canonicalize()?.parent();
             hasher.update(config.as_bytes());
             let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
 
@@ -109,22 +102,52 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let r2_access_key_id = std::env::var("R2_ACCESS_KEY_ID").unwrap();
             let r2_secret_access_key = std::env::var("R2_SECRET_ACCESS_KEY").unwrap();
 
-            let storage = rudis_cms::job::cloudflrae::CloudflareStorage::new(
-                &cf_account_id,
-                &cf_api_token,
-                &r2_access_key_id,
-                &r2_secret_access_key,
-            )
-            .await;
-
             for (_, collection) in &config {
-                let database = rudis_cms::job::cloudflrae::D1Database::new(
+                let kv =
+                    rudis_cms::deploy::cloudflare::kv::Client::new(&cf_account_id, &cf_api_token);
+                let d1 = rudis_cms::deploy::cloudflare::d1::Client::new(
+                    cf_account_id.clone(),
+                    cf_api_token.clone(),
+                    collection.database_id.clone(),
+                )?;
+                let r2 = rudis_cms::deploy::cloudflare::r2::Client::new(
                     &cf_account_id,
-                    &cf_api_token,
-                    &collection.database_id,
-                );
+                    &r2_access_key_id,
+                    &r2_secret_access_key,
+                )
+                .await;
+                let asset = rudis_cms::deploy::asset::Client {};
+                let executor = rudis_cms::job::JobExecutor { kv, d1, r2, asset };
 
-                rudis_cms::batch(&storage, &database, collection, hasher.clone(), force).await?;
+                if let Some(basedir) = basedir {
+                    std::env::set_current_dir(basedir)?;
+                }
+                let schema = schema::TableSchema::compile(collection)?;
+
+                let tasks = glob::glob(&collection.glob)?
+                    .into_iter()
+                    .map(|path| async move {
+                        let path = path?;
+                        rudis_cms::process_data::table::push_rows_from_document(
+                            &collection.table,
+                            hasher,
+                            &schema,
+                            &collection.syntax,
+                            path,
+                        )
+                        .await
+                        .map_err(anyhow::Error::from)
+                    });
+                let mut tables = IndexMap::<_, Vec<_>>::new();
+                let mut uploads = Default::default();
+                for (table_flakes, mut upload_flakes) in try_join_all(tasks).await? {
+                    for (table, mut rows) in table_flakes {
+                        tables.entry(table).or_default().append(&mut rows);
+                    }
+                    uploads.append(&mut upload_flakes);
+                }
+
+                executor.batch(&schema, &tables, uploads, force).await?;
             }
             Ok(())
         }

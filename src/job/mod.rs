@@ -101,16 +101,21 @@ pub struct SyncSet {
 }
 
 pub struct JobExecutor<D, K, R, A> {
-    d1: D,
-    kv: K,
-    r2: R,
-    asset: A,
+    pub d1: D,
+    pub kv: K,
+    pub r2: R,
+    pub asset: A,
 }
 
+#[derive(Debug, thiserror::Error)]
 pub enum JobError<DE, KE, OE, AE> {
+    #[error("database: {0}")]
     Database(DE),
+    #[error("kv: {0}")]
     Kv(KE),
+    #[error("objstore: {0}")]
     ObjectStorage(OE),
+    #[error("asset: {0}")]
     Asset(AE),
 }
 

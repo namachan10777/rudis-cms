@@ -1,267 +1,206 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
-
-use indexmap::IndexMap;
+use std::fmt::Write;
 
 use crate::{
     config,
-    schema::{CollectionSchema, FieldType, TableSchema},
+    schema::{self, FieldType, TableSchema},
 };
 
-fn sub_tables(schema: &TableSchema) -> Vec<&str> {
+mod valibot;
+
+fn upper_camel_case(s: &str) -> String {
+    stringcase::camel_case(s)
+        .char_indices()
+        .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
+        .collect::<String>()
+}
+
+fn storage_pointer(storage: &config::Storage) -> &'static str {
+    match storage {
+        config::Storage::R2 { .. } => "R2StoragePointer",
+        config::Storage::Asset { .. } => "AssetStoragePointer",
+        config::Storage::Kv { .. } => "KvStoragePointer",
+        config::Storage::Inline => "InlineStoragePointer",
+    }
+}
+
+fn generate_markdown_keep_types(
+    out: &mut String,
+    upper_camel_case: &str,
+    image_storage: &config::Storage,
+) {
+    write!(out, "export type {upper_camel_case}Keep = ");
+    for keep in [
+        "AlertKeep",
+        "FootnoteReferenceKeep",
+        "LinkCardKeep",
+        "CodeblockKeep",
+        "HeadingKeep",
+        "ImageKeep",
+    ] {
+        if keep == "ImageKeep" {
+            write!(
+                out,
+                "\n| rudis.{keep}<rudis.{}>",
+                storage_pointer(image_storage)
+            );
+        } else {
+            write!(out, "\n| rudis.{keep}");
+        }
+    }
+    writeln!(out, ";");
+}
+
+fn generate_column_type(out: &mut String, name: &str, field: &schema::FieldType) {
+    match field {
+        FieldType::Markdown { storage, image, .. } => {
+            let upper_camel_case = upper_camel_case(name);
+            generate_markdown_keep_types(out, &upper_camel_case, &image.storage);
+            writeln!(
+                out,
+                "export type {upper_camel_case}Root = rudis.MarkdownRoot<{upper_camel_case}Keep>;"
+            );
+            if !matches!(storage, config::Storage::Inline) {
+                writeln!(
+                    out,
+                    "export type {upper_camel_case}Document = rudis.MarkdownRoot<Frontmatter, {upper_camel_case}Keep>;"
+                );
+            }
+            writeln!(
+                out,
+                "export type {upper_camel_case}Column = rudis.MarkdownReference<rudis.{}>;",
+                storage_pointer(&storage)
+            );
+        }
+        FieldType::File { storage, .. } => {
+            let upper_camel_case = upper_camel_case(name);
+            writeln!(
+                out,
+                "export type {upper_camel_case}Column = rudis.FileReference<rudis.{}>;",
+                storage_pointer(storage)
+            );
+        }
+        FieldType::Image { storage, .. } => {
+            let upper_camel_case = upper_camel_case(name);
+            writeln!(
+                out,
+                "export type {upper_camel_case}Column = rudis.ImageReference<rudis.{}>;",
+                storage_pointer(storage)
+            );
+        }
+        _ => {}
+    }
+}
+
+fn generate_table_type_field(out: &mut String, name: &str, field: &FieldType) {
+    write!(out, "{name}: ");
+    match field {
+        FieldType::Boolean { .. } => {
+            write!(out, "boolean");
+        }
+        FieldType::Id => {
+            write!(out, "string");
+        }
+        FieldType::Hash => {
+            write!(out, "hash");
+        }
+        FieldType::String { .. } => {
+            write!(out, "string");
+        }
+        FieldType::Integer { .. } => {
+            write!(out, "number");
+        }
+        FieldType::Real { .. } => {
+            write!(out, "number");
+        }
+        FieldType::Date { .. } => {
+            write!(out, "Date");
+        }
+        FieldType::Datetime { .. } => {
+            write!(out, "Date");
+        }
+        FieldType::Image { .. } => {
+            write!(out, "{}Column", upper_camel_case(name));
+        }
+        FieldType::File { .. } => {
+            write!(out, "{}Column", upper_camel_case(name));
+        }
+        FieldType::Markdown { .. } => {
+            write!(out, "{}Column", upper_camel_case(name));
+        }
+        FieldType::Records { .. } => {}
+    }
+    if !field.is_required_field() {
+        writeln!(out, "| null;");
+    } else {
+        writeln!(out, ";");
+    }
+}
+
+fn generate_table_type<'o, 'i>(
+    out: &'o mut String,
+    fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
+) {
+    write!(out, "export interface Table {{");
+    fields.for_each(|(name, field)| {
+        generate_table_type_field(out, name, field);
+    });
+    writeln!(out, "}}");
+}
+
+fn generate_frontmatter_type<'o, 'i>(
+    out: &'o mut String,
+    fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
+) {
+    write!(out, "export interface Frontmatter {{");
+    fields.for_each(|(name, field)| {
+        match field {
+            FieldType::Markdown { .. } => {}
+            FieldType::Records { table, .. } => {
+                writeln!(out, "{name}: {table}.FrontmatterWithMarkdownColumns[];");
+            }
+            field => generate_table_type_field(out, name, field),
+        }
+        generate_table_type_field(out, name, field);
+    });
+    writeln!(out, "}}");
+}
+
+fn generate_frontmatter_with_markdown_columns_type<'o, 'i>(
+    out: &'o mut String,
+    fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
+) {
+    write!(out, "export interface FrontmatterWithMarkdownColumns {{");
+    fields.for_each(|(name, field)| {
+        match field {
+            FieldType::Records { table, .. } => {
+                writeln!(out, "{name}: {table}.FrontmatterWithMarkdownColumns[];");
+            }
+            field => generate_table_type_field(out, name, field),
+        }
+        generate_table_type_field(out, name, field);
+    });
+    writeln!(out, "}}");
+}
+
+fn generate_sub_table_imports<'i, 'o>(
+    out: &'o mut String,
+    fields: impl Iterator<Item = &'i FieldType>,
+) {
+    fields.for_each(|field| {
+        if let &FieldType::Records { ref table, .. } = field {
+            writeln!(out, r#"import * as {table} from "./table.ts""#);
+        }
+    });
+}
+
+pub fn generate_type(out: &mut String, schema: &TableSchema) {
+    writeln!(out, r#"import * as rudis from "../rudis.ts""#);
+    generate_sub_table_imports(out, schema.fields.values());
     schema
         .fields
         .iter()
-        .filter_map(|(_, field)| match field {
-            FieldType::Records { table, .. } => Some(table.as_str()),
-            _ => None,
-        })
-        .collect()
-}
-
-fn camel_case(name: &str) -> String {
-    stringcase::camel_case(name)
-        .char_indices()
-        .map(|(i, c)| {
-            if i == 0 {
-                c.to_lowercase().to_string()
-            } else {
-                c.to_string()
-            }
-        })
-        .collect::<String>()
-}
-
-fn capital_camel_case(name: &str) -> String {
-    stringcase::camel_case(name)
-        .char_indices()
-        .map(|(i, c)| {
-            if i == 0 {
-                c.to_uppercase().to_string()
-            } else {
-                c.to_string()
-            }
-        })
-        .collect::<String>()
-}
-
-fn is_field_nullable(field: &FieldType) -> bool {
-    match field {
-        FieldType::Boolean { required, .. } => !*required,
-        FieldType::Date { required, .. } => !*required,
-        FieldType::Datetime { required, .. } => !*required,
-        FieldType::File { required, .. } => !*required,
-        FieldType::Hash => false,
-        FieldType::Id => false,
-        FieldType::String { required, .. } => !*required,
-        FieldType::Image { required, .. } => !*required,
-        FieldType::Markdown { required, .. } => !*required,
-        FieldType::Real { required, .. } => !*required,
-        FieldType::Integer { required, .. } => !*required,
-        FieldType::Records { .. } => false,
-    }
-}
-
-fn ts_type_name(field: &FieldType) -> Option<&'static str> {
-    match field {
-        FieldType::Boolean { .. } => Some("boolean"),
-        FieldType::Date { .. } => Some("Date"),
-        FieldType::Datetime { .. } => Some("Date"),
-        FieldType::File { .. } => None,
-        FieldType::Hash => Some("string"),
-        FieldType::Id => Some("string"),
-        FieldType::String { .. } => Some("string"),
-        FieldType::Image { .. } => None,
-        FieldType::Markdown { .. } => None,
-        FieldType::Real { .. } => Some("number"),
-        FieldType::Integer { .. } => Some("number"),
-        FieldType::Records { .. } => None,
-    }
-}
-
-fn markdown_type(storage: &config::MarkdownStorage, name: &str) -> String {
-    match storage {
-        config::MarkdownStorage::Inline => {
-            format!(
-                "MarkdownInlineStorageColumn<{}Keep>",
-                capital_camel_case(name)
-            )
-        }
-        config::MarkdownStorage::Kv { .. } => "MarkdownKvStorageColumn".into(),
-    }
-}
-
-fn markdown_schema(storage: &config::MarkdownStorage) -> &'static str {
-    match storage {
-        config::MarkdownStorage::Inline => "markdownInlineStorageColumn",
-        config::MarkdownStorage::Kv { .. } => "markdownKvStorageColumn",
-    }
-}
-
-fn image_storage_pointer(storage: &config::ImageStorage) -> &'static str {
-    match storage {
-        config::ImageStorage::R2 { .. } => "R2StoragePointer",
-        config::ImageStorage::Asset { .. } => "AssetStoragePointer",
-    }
-}
-
-fn markdown_keeps(_: &config::MarkdownConfig, image: &config::MarkdownImageConfig) -> Vec<String> {
-    vec![
-        format!("Image<rudis.{}>", image_storage_pointer(&image.storage)),
-        "Alert".into(),
-        "Codeblock".into(),
-        "FootnoteReference".into(),
-        "Heading".into(),
-        "LinkCard".into(),
-    ]
-}
-
-fn image_storage(storage: &config::ImageStorage) -> &'static str {
-    match storage {
-        config::ImageStorage::R2 { .. } => "R2StoragePointer",
-        config::ImageStorage::Asset { .. } => "AssetStoragePointer",
-    }
-}
-
-fn image_storage_schema(storage: &config::ImageStorage) -> &'static str {
-    match storage {
-        config::ImageStorage::R2 { .. } => "r2StoragePointer",
-        config::ImageStorage::Asset { .. } => "assetStoragePointer",
-    }
-}
-
-fn file_storage(storage: &config::FileStorage) -> &'static str {
-    match storage {
-        config::FileStorage::R2 { .. } => "r2StoragePointer",
-        config::FileStorage::Asset { .. } => "assetStoragePointer",
-    }
-}
-
-fn file_storage_schema(storage: &config::FileStorage) -> &'static str {
-    match storage {
-        config::FileStorage::R2 { .. } => "r2StoragePointer",
-        config::FileStorage::Asset { .. } => "assetStoragePointer",
-    }
-}
-
-fn ctx(schema: &TableSchema) -> liquid::Object {
-    let columns = schema.fields.iter().map(|(name, field)| match field {
-        FieldType::Id
-        | FieldType::Boolean { .. }
-        | FieldType::Real { .. }
-        | FieldType::Integer { .. }
-        | FieldType::String { .. }
-        | FieldType::Hash => liquid::object!({
-            "kind": "primitive",
-            "name": name,
-            "camel_case": camel_case(name),
-            "capital_camel_case": capital_camel_case(name),
-            "nullable": is_field_nullable(field),
-            "inherited": false,
-            "type": ts_type_name(field).unwrap(),
-        }),
-        FieldType::Date { .. } | FieldType::Datetime { .. } => liquid::object!({
-            "kind": "datetime",
-            "name": name,
-            "camel_case": camel_case(name),
-            "capital_camel_case": capital_camel_case(name),
-            "nullable": is_field_nullable(field),
-            "inherited": false,
-            "type": ts_type_name(field).unwrap(),
-        }),
-        FieldType::Markdown {
-            config,
-            storage,
-            image,
-            ..
-        } => {
-            liquid::object!({
-                "kind": "markdown",
-                "name": name,
-                "camel_case": camel_case(name),
-                "capital_camel_case": capital_camel_case(name),
-                "nullable": is_field_nullable(field),
-                "inherited": false,
-                "markdown_type": markdown_type(storage, name),
-                "schema": markdown_schema(storage),
-                "keeps": markdown_keeps(config, image),
-            })
-        }
-        FieldType::Image { storage, .. } => {
-            liquid::object!({
-                "kind": "image",
-                "name": name,
-                "camel_case": camel_case(name),
-                "capital_camel_case": capital_camel_case(name),
-                "nullable": is_field_nullable(field),
-                "inherited": false,
-                "storage": image_storage(storage),
-                "storage_schema": image_storage_schema(storage),
-            })
-        }
-        FieldType::Records { table, .. } => {
-            liquid::object!({
-                "kind": "records",
-                "name": name,
-                "camel_case": camel_case(name),
-                "capital_camel_case": capital_camel_case(name),
-                "inherited": false,
-                "table": table,
-            })
-        }
-        FieldType::File { storage, .. } => {
-            liquid::object!({
-                "kind": "file",
-                "name": name,
-                "camel_case": camel_case(name),
-                "capital_camel_case": capital_camel_case(name),
-                "nullable": is_field_nullable(field),
-                "storage": file_storage(storage),
-                "storage_schema": file_storage_schema(storage),
-                "inherited": false,
-            })
-        }
-    });
-
-    let inherited_columns = schema.inherit_ids.iter().map(|name| {
-        liquid::object!({
-            "kind": "primitive",
-            "name": name,
-            "camel_case": camel_case(name),
-            "capital_camel_case": capital_camel_case(name),
-            "nullable": false,
-            "inherited": true,
-            "type": "string",
-        })
-    });
-
-    let columns = inherited_columns.chain(columns).collect::<Vec<_>>();
-    liquid::object!({
-        "columns": columns,
-        "sub_tables": sub_tables(schema),
-    })
-}
-
-static TEMPLATE: LazyLock<liquid::Template> = LazyLock::new(|| {
-    liquid::ParserBuilder::with_stdlib()
-        .build()
-        .unwrap()
-        .parse(include_str!("./table.ts.liquid"))
-        .unwrap()
-});
-
-pub const RUDIS_TYPE_LIB: &str = include_str!("./rudis.ts.txt");
-
-pub fn render(schema: &CollectionSchema) -> IndexMap<PathBuf, String> {
-    schema
-        .tables
-        .iter()
-        .map(|(name, table)| {
-            let name: &Path = name.as_ref();
-            let content = TEMPLATE.render(&ctx(table)).unwrap();
-            (name.with_extension("ts"), content)
-        })
-        .collect()
+        .for_each(|(name, field)| generate_column_type(out, name, field));
+    generate_table_type(out, schema.fields.iter());
+    generate_frontmatter_type(out, schema.fields.iter());
+    generate_frontmatter_with_markdown_columns_type(out, schema.fields.iter());
 }

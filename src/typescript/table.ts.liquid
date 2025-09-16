@@ -1,99 +1,14 @@
-import * as v from "valibot";
-import * as rudis from "../rudis";
-{%- for sub_table in sub_tables %}
-import * as {{ sub_table }} from "./{{ sub_table }}";
-{%- endfor %}
+import * as rudis from "../rudis.ts";
 
-{% for column in columns -%}
-  {% if column.kind == "markdown" %}
-export type {{ column.capital_camel_case }}Column = rudis.{{ column.markdown_type }};
-export type {{ column.capital_camel_case }}Keep =
-    {%- for keep in column.keeps %}
-  | rudis.{{ keep }}
+{%- for field in fields %}
+  {%- if field.kind === "markdown" %}
+export const {{ field.upperCamelCase }} =
+    {%- for keep in field.keeps %}
+      {%- if keep.name == "Image" %}
+  | rudis.Image<{{ keep.storage }}>
+      {%- else %}
+  | rudis.{{ keep.name }}
+      {%- endif %}
     {%- endfor %}
-export const {{ column.camel_case }}Column = rudis.{{ column.schema }};
-export type {{ column.capital_camel_case }}Content = rudis.MarkdownDocument<Frontmatter, {{ column.capital_camel_case }}Keep>;
-  {% elsif column.kind == "image"  %}
-export type {{ column.capital_camel_case }}Column = rudis.ImageColumn<rudis.{{ column.storage }}>;
-export const {{ column.camel_case }}Column = rudis.imageColumn(rudis.{{ column.storage_schema }});
-  {% elsif column.kind == "file" %}
-export type {{ column.capital_camel_case }}Column = rudis.FileColumn<rudis.{{ column.storage }}, {{ column.capital_camel_case }}Keep>;
-export const {{ column.camel_case }}Column = rudis.fileColumn(rudis.{{ column.storage_schema }});
-  {% endif %}
-{%- endfor %}
-
-export interface Table {
-{%- for column in columns %}
-  {%- if column.kind == "image" or column.kind == "markdown" %}
-  {{ column.name }}: {{ column.capital_camel_case }}Column{% if column.nullable %} | null{% endif %};
-  {%- elsif column.kind == "primitive" %}
-  {{ column.name }}: {{ column.type }}{% if column.nullable %} | null{% endif %};
-  {%- elsif column.kind == "datetime" %}
-  {{ column.name }}: {{ column.type }}{% if column.nullable %} | null{% endif %};
   {%- endif %}
 {%- endfor %}
-}
-
-export interface Frontmatter {
-{%- for column in columns %}
-  {%- if column.kind == "image" or column.kind == "markdown" %}
-  {{ column.name }}: {{ column.capital_camel_case }}Column{% if column.nullable %} | null{% endif %};
-  {%- elsif column.kind == "records" %}
-  {{ column.name }}: {{ column.table }}.Frontmatter[];
-  {%- elsif column.kind == "primitive" and column.inherited == false %}
-  {{ column.name }}: {{ column.type }}{% if column.nullable %} | null{% endif %};
-  {%- elsif "date" or column.kind == "datetime" %}
-  {{ column.name }}: {{ column.type }}{% if column.nullable %} | null{% endif %};
-  {%- endif %}
-{%- endfor %}
-}
-
-export const table = v.object({
-{%- for column in columns %}
-  {%- if column.kind == "image" or column.kind == "markdown" %}
-    {%- if column.nullable %}
-  {{ column.name }}: v.pipe(
-    v.nullable(v.string()),
-    v.transform((json) => json ? JSON.parse(json) : null),
-    v.nullable({{ column.camel_case }}Column),
-  ),
-    {%- else %}
-  {{ column.name }}: v.pipe(
-    v.string(),
-    v.transform((json) => JSON.parse(json)),
-    {{ column.camel_case }}Column,
-  ),
-    {%- endif %}
-  {%- elsif column.kind == "primitive" %}
-    {%- if column.type == "boolean" %}
-      {%- if column.nullable %}
-  {{ column.name }}: v.pipe(
-    v.nullable(v.number()),
-    v.transform((value) => value === null ? null : value === 1),
-    v.nullable(v.boolean()),
-  ),
-      {%- else %}
-  {{ column.name }}: v.pipe(v.number(), v.transform((value) => value === 1), v.boolean()),
-      {%- endif %}
-    {%- else %}
-      {%- if column.nullable %}
-  {{ column.name }}: v.nullable(v.{{ column.type }}()),
-      {%- else %}
-  {{ column.name }}: v.{{ column.type }}(),
-      {%- endif %}
-    {%- endif %}
-  {%- elsif column.kind == "datetime" %}
-    {%- if column.nullable %}
-  {{ column.name }}: v.pipe(
-    v.nullable(v.string()),
-    v.transform((date) => date ? new Date(date) : null),
-  )%},
-    {%- else %}
-  {{ column.name }}: v.pipe(
-      v.string(),
-      v.transform((date) => new Date(date)),
-  ),
-    {%- endif %}
-  {%- endif %}
-{%- endfor %}
-});
