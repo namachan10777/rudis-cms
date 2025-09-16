@@ -4,7 +4,7 @@ use html_escape::encode_safe;
 use indexmap::indexmap;
 use syntect::parsing::{BasicScopeStackOp, SyntaxDefinition, SyntaxSet};
 
-use crate::field::markdown::Node;
+use crate::process_data::markdown::Node;
 
 fn load_syntax_set() -> anyhow::Result<SyntaxSet> {
     syntect::dumps::from_dump_file(".blindcms/syntect.packdump").map_err(Into::into)

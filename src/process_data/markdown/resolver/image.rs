@@ -5,12 +5,11 @@ use indexmap::IndexMap;
 
 use crate::{
     ErrorDetail,
-    field::{
-        ImageReference,
+    process_data::{
+        ImageReferenceMeta, ObjectReference,
         markdown::{Node, parser::KeepRaw},
-        object_loader::{self, ImageContent, SvgNode},
+        object_loader,
     },
-    table,
 };
 
 #[derive(Default)]
@@ -45,15 +44,19 @@ pub struct Config {
 }
 
 pub(super) enum ImageResolved {
-    EmbedSvg { tree: SvgNode },
-    Reference(ImageReference),
+    EmbedSvg { tree: object_loader::SvgNode },
+    Reference(ObjectReference<ImageReferenceMeta>),
+}
+
+pub trait ImageUploadLocator {
+    fn into_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta>;
 }
 
 impl<'a> ImageSrcExtractor<'a> {
     pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        uploads: &table::MarkdownImageCollector<'_>,
+        image_locator: &impl ImageUploadLocator,
         config: Config,
     ) -> Result<ImageResolver, ErrorDetail> {
         let tasks = self.src_set.into_iter().map(|src| async move {
@@ -63,7 +66,7 @@ impl<'a> ImageSrcExtractor<'a> {
 
             match image {
                 object_loader::Image {
-                    body: ImageContent::Vector { tree, size, .. },
+                    body: object_loader::ImageContent::Vector { tree, size, .. },
                     hash,
                     ..
                 } if size < config.embed_svg_threshold => {
@@ -71,7 +74,7 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let reference = uploads.push_markdown_image(image);
+                    let reference = image_locator.into_location(image);
                     Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }

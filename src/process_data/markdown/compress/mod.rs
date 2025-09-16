@@ -4,13 +4,8 @@ use indexmap::IndexMap;
 use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
 
-use crate::field::{
-    StoragePointer,
-    markdown::{
-        AlertKind, resolver, text_content,
-        types::{AttrValue, Name},
-    },
-};
+use super::super::StoragePointer;
+use super::{AlertKind, AttrValue, Name, resolver, text_content};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeadingLevel {

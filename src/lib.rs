@@ -4,14 +4,13 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 use tracing::trace;
 
-use crate::field::{CompoundId, object_loader};
+use crate::process_data::{CompoundId, object_loader};
 
 pub mod config;
 pub mod deploy;
-pub mod field;
 pub mod job;
+pub mod process_data;
 pub mod schema;
-pub mod table;
 pub mod typescript;
 
 #[derive(Debug, thiserror::Error)]

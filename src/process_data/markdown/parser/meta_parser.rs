@@ -1,4 +1,4 @@
-use crate::field::markdown::types::{AttrValue, Name};
+use super::{AttrValue, Name};
 use std::str::FromStr;
 
 use indexmap::IndexMap;
@@ -203,9 +203,9 @@ impl FromStr for CodeblockMeta {
 
 #[cfg(test)]
 mod tests {
-    use crate::field::markdown::types::AttrValue;
 
     use super::parse_codeblock_info;
+    use crate::process_data::markdown::AttrValue;
 
     #[test]
     fn test_parse_language_only() {

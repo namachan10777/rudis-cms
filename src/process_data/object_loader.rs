@@ -5,10 +5,7 @@ use image::GenericImageView as _;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::field::markdown::{
-    Node,
-    types::{AttrValue, Name},
-};
+use super::markdown::{AttrValue, Name, Node};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

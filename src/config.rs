@@ -1,20 +1,8 @@
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ImageStorage {
-    R2 {
-        bucket: String,
-        prefix: Option<String>,
-    },
-    Asset {
-        dir: String,
-    },
-}
+use serde::Deserialize;
 
 #[derive(Deserialize, Clone, Debug)]
-pub enum FileStorage {
+pub enum Storage {
     R2 {
         bucket: String,
         prefix: Option<String>,
@@ -22,6 +10,11 @@ pub enum FileStorage {
     Asset {
         dir: String,
     },
+    Kv {
+        namespace: String,
+        prefix: Option<String>,
+    },
+    Inline,
 }
 
 #[derive(Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
@@ -37,22 +30,12 @@ pub enum ImageFormat {
 pub struct MarkdownImageConfig {
     pub table: String,
     pub inherit_ids: Vec<String>,
-    pub storage: ImageStorage,
+    pub storage: Storage,
     pub embed_svg_threshold: usize,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct MarkdownConfig {}
-
-#[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum MarkdownStorage {
-    Inline,
-    Kv {
-        namespace: String,
-        prefix: Option<String>,
-    },
-}
 
 #[derive(Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -98,12 +81,12 @@ pub enum Field {
     Image {
         #[serde(default)]
         required: bool,
-        storage: ImageStorage,
+        storage: Storage,
     },
     File {
         #[serde(default)]
         required: bool,
-        storage: FileStorage,
+        storage: Storage,
     },
     Records {
         #[serde(default)]
@@ -119,7 +102,7 @@ pub enum Field {
         required: bool,
         image: MarkdownImageConfig,
         config: MarkdownConfig,
-        storage: MarkdownStorage,
+        storage: Storage,
     },
 }
 

@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-use crate::field::markdown::{Node, parser::KeepRaw, text_content};
+use crate::process_data::markdown::{Node, parser::KeepRaw, text_content};
 
 pub(super) struct FootnoteResolver {
     index: usize,

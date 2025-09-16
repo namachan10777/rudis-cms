@@ -67,17 +67,17 @@ pub(crate) enum FieldType {
     },
     Image {
         required: bool,
-        storage: config::ImageStorage,
+        storage: config::Storage,
     },
     File {
         required: bool,
-        storage: config::FileStorage,
+        storage: config::Storage,
     },
     Markdown {
         required: bool,
         image: config::MarkdownImageConfig,
         config: config::MarkdownConfig,
-        storage: config::MarkdownStorage,
+        storage: config::Storage,
         image_table: Box<TableSchema>,
         frontmatter: IndexMap<String, FieldType>,
     },

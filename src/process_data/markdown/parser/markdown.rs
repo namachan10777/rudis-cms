@@ -6,14 +6,8 @@ use pulldown_cmark::{
 };
 use tracing::warn;
 
-use crate::field::markdown::{
-    AlertKind, Node,
-    parser::meta_parser::CodeblockMeta,
-    raw_to_expanded,
-    types::{AttrValue, Name},
-};
-
-use super::KeepRaw;
+use super::super::raw_to_expanded;
+use super::{AlertKind, AttrValue, KeepRaw, Name, Node, meta_parser::CodeblockMeta};
 
 struct ParserImpl<'src> {
     parser: pulldown_cmark::Parser<'src>,
@@ -456,7 +450,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
             if url::Url::parse(&text).is_ok() {
                 Node::Lazy {
                     keep: KeepRaw::Link {
-                        link_type: crate::field::markdown::LinkType::Autolink,
+                        link_type: super::super::LinkType::Autolink,
                         dest_url: text.to_string(),
                         title: text.to_string(),
                         id: Default::default(),

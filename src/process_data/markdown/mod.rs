@@ -5,12 +5,11 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use valuable::Valuable;
 
-use types::{AttrValue, Name};
-
 pub mod compress;
 pub mod parser;
 pub mod resolver;
-pub mod types;
+mod types;
+pub use types::{AttrValue, Name};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "snake_case")]

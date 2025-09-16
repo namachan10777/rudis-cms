@@ -1,11 +1,17 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{
+    fmt::{Debug, Write as _},
+    path::PathBuf,
+};
 
+use base64::Engine;
 use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
 
+use crate::config::{self, Storage};
+
 pub mod markdown;
 pub mod object_loader;
-pub mod upload;
+pub mod table;
 
 #[derive(Clone, Default, Debug)]
 pub struct CompoundIdPrefix(Vec<(String, String)>);
@@ -82,6 +88,36 @@ pub enum StoragePointer {
     R2 { bucket: String, key: String },
     Asset { path: PathBuf },
     Kv { namespace: String, key: String },
+    Inline { content: String, base64: bool },
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+pub enum StorageContent {
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
+impl From<StorageContent> for Vec<u8> {
+    fn from(value: StorageContent) -> Self {
+        match value {
+            StorageContent::Text(text) => text.into_bytes(),
+            StorageContent::Bytes(bin) => bin,
+        }
+    }
+}
+
+impl From<StorageContent> for Box<[u8]> {
+    fn from(value: StorageContent) -> Self {
+        match value {
+            StorageContent::Bytes(bytes) => bytes.into_boxed_slice(),
+            StorageContent::Text(text) => text.into_bytes().into_boxed_slice(),
+        }
+    }
+}
+
+pub enum StorageContentRef<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
 }
 
 impl StoragePointer {
@@ -107,31 +143,9 @@ impl StoragePointer {
                 hasher.update(namespace.as_bytes());
                 hasher.update(key.as_bytes());
             }
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Debug, Hash)]
-pub struct ImageReference {
-    pub width: u32,
-    pub height: u32,
-    pub content_type: String,
-    pub blurhash: Option<String>,
-    pub pointer: StoragePointer,
-    #[serde(serialize_with = "serialize_hash")]
-    pub hash: blake3::Hash,
-}
-
-impl ImageReference {
-    pub fn build(image: object_loader::Image, hash: blake3::Hash, pointer: StoragePointer) -> Self {
-        let (width, height) = image.body.dimensions();
-        Self {
-            width,
-            height,
-            content_type: image.content_type,
-            blurhash: None,
-            pointer,
-            hash,
+            StoragePointer::Inline { .. } => {
+                hasher.update(b"inline");
+            }
         }
     }
 }
@@ -140,52 +154,128 @@ fn serialize_hash<S: serde::Serializer>(contact: &blake3::Hash, s: S) -> Result<
     s.serialize_str(&contact.to_string())
 }
 
-#[derive(Serialize, Debug, Hash)]
-pub struct FileReference {
-    pub size: u64,
-    pub content_type: String,
-    pub pointer: StoragePointer,
-    #[serde(serialize_with = "serialize_hash")]
-    pub hash: blake3::Hash,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImageReferenceMeta {
+    pub width: u32,
+    pub height: u32,
+    pub blurhash: Option<String>,
+    pub derived_id: String,
 }
 
-impl FileReference {
-    pub fn build(
-        file: &object_loader::Object,
-        hash: blake3::Hash,
-        pointer: StoragePointer,
-    ) -> Self {
-        FileReference {
-            size: file.body.len() as _,
-            content_type: file.content_type.clone(),
-            pointer,
-            hash,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ObjectReference<M> {
+    #[serde(serialize_with = "serialize_hash")]
+    pub hash: blake3::Hash,
+    pub size: u64,
+    pub content_type: String,
+    pub meta: M,
+    pub pointer: StoragePointer,
+}
+
+impl<'a> StorageContentRef<'a> {
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Bytes(b) => b,
+            Self::Text(t) => t.as_bytes(),
         }
     }
 }
 
-#[derive(Serialize, Debug, Hash)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum MarkdownReference {
-    Inline {
-        content: serde_json::Value,
-        #[serde(serialize_with = "serialize_hash")]
-        hash: blake3::Hash,
-    },
-    Kv {
-        key: String,
-        #[serde(serialize_with = "serialize_hash")]
-        hash: blake3::Hash,
-        pointer: StoragePointer,
-    },
-}
+impl<M> ObjectReference<M> {
+    pub fn build(
+        data: StorageContentRef,
+        id: &CompoundId,
+        content_type: String,
+        meta: M,
+        storage: &config::Storage,
+        suffix: Option<String>,
+    ) -> Self {
+        match storage {
+            config::Storage::Asset { dir } => {
+                let path = PathBuf::from(dir);
+                let path = path.join(id.to_string());
 
-impl MarkdownReference {
-    pub(crate) fn build(key: &str, hash: blake3::Hash, pointer: StoragePointer) -> Self {
-        MarkdownReference::Kv {
-            key: key.to_string(),
-            hash,
-            pointer,
+                let path = if let Some(suffix) = suffix {
+                    path.join(&suffix)
+                } else {
+                    path
+                };
+
+                let pointer = StoragePointer::Asset { path: path.clone() };
+                let hash = pointer.generate_consistent_hash(blake3::hash(data.as_bytes()));
+
+                ObjectReference {
+                    hash,
+                    size: data.as_bytes().len() as _,
+                    content_type,
+                    meta,
+                    pointer: StoragePointer::Asset { path },
+                }
+            }
+            config::Storage::Inline => {
+                let pointer = match data {
+                    StorageContentRef::Bytes(b) => StoragePointer::Inline {
+                        content: base64::engine::general_purpose::STANDARD.encode(b),
+                        base64: true,
+                    },
+                    StorageContentRef::Text(t) => StoragePointer::Inline {
+                        content: t.to_string(),
+                        base64: false,
+                    },
+                };
+                let hash = pointer.generate_consistent_hash(blake3::hash(data.as_bytes()));
+                ObjectReference {
+                    hash,
+                    size: data.as_bytes().len() as _,
+                    content_type,
+                    meta,
+                    pointer,
+                }
+            }
+            config::Storage::Kv { namespace, prefix } => {
+                let mut key = if let Some(prefix) = prefix {
+                    format!("{prefix}/{id}")
+                } else {
+                    id.to_string()
+                };
+                if let Some(suffix) = suffix {
+                    write!(key, "/{suffix}");
+                }
+                let pointer = StoragePointer::Kv {
+                    namespace: namespace.clone(),
+                    key: key.clone(),
+                };
+                let hash = pointer.generate_consistent_hash(blake3::hash(data.as_bytes()));
+                ObjectReference {
+                    hash,
+                    size: data.as_bytes().len() as _,
+                    content_type,
+                    meta,
+                    pointer,
+                }
+            }
+            config::Storage::R2 { bucket, prefix } => {
+                let mut key = if let Some(prefix) = prefix {
+                    format!("{prefix}/{id}")
+                } else {
+                    id.to_string()
+                };
+                if let Some(suffix) = suffix {
+                    write!(key, "/{suffix}");
+                }
+                let pointer = StoragePointer::R2 {
+                    bucket: bucket.clone(),
+                    key: key.clone(),
+                };
+                let hash = pointer.generate_consistent_hash(blake3::hash(data.as_bytes()));
+                ObjectReference {
+                    hash,
+                    size: data.as_bytes().len() as _,
+                    content_type,
+                    meta,
+                    pointer,
+                }
+            }
         }
     }
 }
@@ -202,9 +292,9 @@ pub enum ColumnValue {
     Date(chrono::NaiveDate),
     Datetime(chrono::NaiveDateTime),
     Array(Vec<serde_json::Value>),
-    Image(ImageReference),
-    File(FileReference),
-    Markdown(MarkdownReference),
+    Image(ObjectReference<ImageReferenceMeta>),
+    File(ObjectReference<()>),
+    Markdown(ObjectReference<()>),
 }
 
 impl Serialize for ColumnValue {

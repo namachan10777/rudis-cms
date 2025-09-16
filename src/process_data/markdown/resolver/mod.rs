@@ -1,21 +1,19 @@
 use indexmap::indexmap;
 use std::path::Path;
 
-use crate::{
-    field::markdown::{
-        Node,
-        compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
-        parser::{KeepRaw, RichTextDocumentRaw},
-        resolver::image::ImageResolved,
-        text_content,
-    },
-    table,
+use crate::process_data::markdown::{
+    Node,
+    compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
+    parser::{KeepRaw, RichTextDocumentRaw},
+    resolver::image::ImageResolved,
+    text_content,
 };
 
 mod codeblock;
 mod footnote;
 mod image;
 mod link_card;
+pub use image::ImageUploadLocator;
 
 pub struct Footnote {
     pub id: String,
@@ -142,10 +140,10 @@ impl<'r> Resolvers<'r> {
                     Some(ImageResolved::Reference(reference)) => Node::Lazy {
                         keep: Keep::Image(Image {
                             storage: reference.pointer.clone(),
-                            blurhash: reference.blurhash.clone(),
+                            blurhash: reference.meta.blurhash.clone(),
                             alt: title,
-                            width: reference.width,
-                            height: reference.height,
+                            width: reference.meta.width,
+                            height: reference.meta.height,
                             content_type: reference.content_type.clone(),
                         }),
                         children: Default::default(),
@@ -212,7 +210,7 @@ impl RichTextDocument {
     pub(crate) async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        uploader: &table::MarkdownImageCollector<'_>,
+        uploader: &impl image::ImageUploadLocator,
         embed_svg_threshold: usize,
     ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
         let mut footnote_resolver = footnote::FootnoteResolver::new(&document.footnotes);

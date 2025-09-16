@@ -10,9 +10,8 @@ mod sql;
 pub mod storage;
 
 use crate::{
-    field::{self, StoragePointer},
+    process_data::{self, StorageContent, StoragePointer, table},
     schema,
-    table::{self, Tables},
 };
 
 #[derive(Hash, PartialEq, Eq)]
@@ -37,7 +36,7 @@ pub struct KvUpload {
     pub namespace: String,
     pub key: String,
     #[dbg(skip)]
-    pub content: String,
+    pub content: StorageContent,
 }
 
 #[derive(Dbg)]
@@ -88,17 +87,17 @@ pub trait Database {
     fn fetch_objects_metadata(
         &self,
         ctx: &Self::Context,
-    ) -> impl Future<Output = Result<IndexMap<blake3::Hash, StoragePointer>, Self::Error>>;
+    ) -> impl Future<Output = Result<IndexMap<blake3::Hash, process_data::StoragePointer>, Self::Error>>;
     fn sync(
         &self,
         ctx: &Self::Context,
-        tables: &Tables,
+        tables: &process_data::table::Tables,
     ) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 pub struct SyncSet {
     pub(crate) tables: table::Tables,
-    pub(crate) uploads: field::upload::Uploads,
+    pub(crate) uploads: Vec<(StoragePointer, Vec<u8>)>,
 }
 
 pub struct JobExecutor<D, K, R, A> {
@@ -150,54 +149,69 @@ fn asset_delete_mask<'a>(uploads: impl Iterator<Item = &'a AssetUpload>) -> Hash
         .collect::<HashSet<_>>()
 }
 
-fn filter_uploads<T, U>(
-    uploads: impl Iterator<Item = (blake3::Hash, T)>,
-    present_objects: &IndexMap<blake3::Hash, U>,
+fn filter_uploads<T>(
+    uploads: impl Iterator<Item = process_data::table::Upload>,
+    present_objects: &IndexMap<blake3::Hash, T>,
     force: bool,
-) -> impl Iterator<Item = T> {
-    uploads.filter_map(move |(hash, obj)| {
-        if force || !present_objects.contains_key(&hash) {
-            Some(obj)
+) -> impl Iterator<Item = process_data::table::Upload> {
+    uploads.filter_map(move |upload| {
+        if force || !present_objects.contains_key(&upload.hash) {
+            Some(upload)
         } else {
             None
         }
     })
 }
 
-fn disappeared_objects<T>(
-    present_objects: IndexMap<blake3::Hash, StoragePointer>,
-    appeared_objects: &IndexMap<blake3::Hash, T>,
-    r2_mask: &HashSet<R2Delete>,
-    kv_mask: &HashSet<KvDelete>,
-    asset_mask: &HashSet<AssetDelete>,
+fn disappeared_objects<'a, T>(
+    present_objects: IndexMap<blake3::Hash, process_data::StoragePointer>,
+    appeared_objects: &'a IndexMap<blake3::Hash, T>,
+    mask: &'a HashSet<StoragePointer>,
+) -> impl 'a + Iterator<Item = StoragePointer> {
+    present_objects
+        .into_iter()
+        .filter(|(hash, pointer)| !appeared_objects.contains_key(hash) && !mask.contains(pointer))
+        .map(|(_, pointer)| pointer)
+}
+
+fn multiplex_upload(
+    uploads: impl Iterator<Item = process_data::table::Upload>,
+) -> (Vec<R2Upload>, Vec<KvUpload>, Vec<AssetUpload>) {
+    let mut r2 = Vec::new();
+    let mut kv = Vec::new();
+    let mut asset = Vec::new();
+    uploads.for_each(|upload| match upload.pointer {
+        StoragePointer::Asset { path } => asset.push(AssetUpload {
+            path,
+            body: upload.data.into(),
+        }),
+        StoragePointer::Inline { .. } => {}
+        StoragePointer::Kv { namespace, key } => kv.push(KvUpload {
+            namespace,
+            key,
+            content: upload.data,
+        }),
+        StoragePointer::R2 { bucket, key } => r2.push(R2Upload {
+            key,
+            bucket,
+            body: upload.data.into(),
+            content_type: upload.content_type,
+        }),
+    });
+    (r2, kv, asset)
+}
+
+fn multiplex_delete(
+    disappeards: impl Iterator<Item = StoragePointer>,
 ) -> (Vec<R2Delete>, Vec<KvDelete>, Vec<AssetDelete>) {
     let mut r2 = Vec::new();
     let mut kv = Vec::new();
     let mut asset = Vec::new();
-    present_objects.into_iter().for_each(|(hash, pointer)| {
-        if !appeared_objects.contains_key(&hash) {
-            return;
-        }
-        match pointer {
-            StoragePointer::R2 { bucket, key } => {
-                let object = R2Delete { bucket, key };
-                if !r2_mask.contains(&object) {
-                    r2.push(object);
-                }
-            }
-            StoragePointer::Kv { namespace, key } => {
-                let object = KvDelete { namespace, key };
-                if !kv_mask.contains(&object) {
-                    kv.push(object);
-                }
-            }
-            StoragePointer::Asset { path } => {
-                let object = AssetDelete { path };
-                if !asset_mask.contains(&object) {
-                    asset.push(object);
-                }
-            }
-        }
+    disappeards.for_each(|pointer| match pointer {
+        StoragePointer::R2 { bucket, key } => r2.push(R2Delete { bucket, key }),
+        StoragePointer::Asset { path } => asset.push(AssetDelete { path }),
+        StoragePointer::Kv { namespace, key } => kv.push(KvDelete { namespace, key }),
+        StoragePointer::Inline { .. } => {}
     });
     (r2, kv, asset)
 }
@@ -213,7 +227,7 @@ impl<
         &self,
         sqls: &sql::SqlStatements,
     ) -> Result<
-        IndexMap<blake3::Hash, StoragePointer>,
+        IndexMap<blake3::Hash, process_data::StoragePointer>,
         JobError<D::Error, K::Error, O::Error, A::Error>,
     > {
         #[serde_as]
@@ -222,7 +236,7 @@ impl<
             #[serde(deserialize_with = "deserialize_hash")]
             hash: blake3::Hash,
             #[serde_as(as = "JsonString")]
-            storage: StoragePointer,
+            storage: process_data::StoragePointer,
         }
         let objects = self
             .d1
@@ -254,16 +268,15 @@ impl<
     async fn upload_kv(&self, uploads: impl Iterator<Item = KvUpload>) -> Result<(), K::Error> {
         let mut namespaces = IndexMap::<_, Vec<_>>::new();
         for upload in uploads {
+            let pair = storage::kv::Pair::builder().key(upload.key);
+            let pair = match upload.content {
+                StorageContent::Bytes(bin) => pair.binary_value(&bin),
+                StorageContent::Text(text) => pair.string_value(text),
+            };
             namespaces
                 .entry(upload.namespace.clone())
                 .or_default()
-                .push(
-                    storage::kv::Pair::builder()
-                        .key(upload.key)
-                        .string_value(upload.content)
-                        .build()
-                        .unwrap(),
-                );
+                .push(pair.build().unwrap());
         }
         for (namespace, pairs) in namespaces {
             self.kv.write_multiple(&namespace, &pairs).await?;
@@ -319,7 +332,7 @@ impl<
     async fn full_sync_db(
         &self,
         sqls: &sql::SqlStatements,
-        tables: &table::Tables,
+        tables: &process_data::table::Tables,
     ) -> Result<(), D::Error> {
         let param = serde_json::to_string(tables).expect("tables must be encodable");
         for statement in &sqls.upsert {
@@ -336,23 +349,25 @@ impl<
     pub async fn batch(
         &self,
         schema: &schema::CollectionSchema,
-        tables: &table::Tables,
-        uploads: field::upload::Uploads,
+        tables: &process_data::table::Tables,
+        uploads: process_data::table::Uploads,
         force: bool,
     ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>> {
         let ctx = sql::SqlStatements::new(schema);
         let present_objects = self.fetch_objects_metadata(&ctx).await?;
-        let kv_delete_mask = kv_delete_mask(uploads.kv.values());
-        let r2_delete_mask = objstore_delete_mask(uploads.r2.values());
-        let asset_delete_mask = asset_delete_mask(uploads.asset.values());
-        let r2 = filter_uploads(uploads.r2.into_iter(), &present_objects, force);
-        let kv = filter_uploads(uploads.kv.into_iter(), &present_objects, force);
-        let asset = filter_uploads(uploads.asset.into_iter(), &present_objects, force);
+        let delete_mask = uploads
+            .iter()
+            .map(|upload| &upload.pointer)
+            .cloned()
+            .collect::<HashSet<_>>();
+        let uploads = filter_uploads(uploads.into_iter(), &present_objects, force);
+
+        let (r2, kv, asset) = multiplex_upload(uploads);
 
         let (upload_r2, upload_kv, upload_asset) = join!(
-            self.upload_objstore(r2),
-            self.upload_kv(kv),
-            self.upload_asset(asset),
+            self.upload_objstore(r2.into_iter()),
+            self.upload_kv(kv.into_iter()),
+            self.upload_asset(asset.into_iter()),
         );
         upload_r2.map_err(JobError::ObjectStorage)?;
         upload_kv.map_err(JobError::Kv)?;
@@ -363,17 +378,12 @@ impl<
             .map_err(JobError::Database)?;
 
         let appeared_objects = self.fetch_objects_metadata(&ctx).await?;
-        let (r2_deletions, kv_deletions, asset_deletions) = disappeared_objects(
-            present_objects,
-            &appeared_objects,
-            &r2_delete_mask,
-            &kv_delete_mask,
-            &asset_delete_mask,
-        );
+        let deletions = disappeared_objects(present_objects, &appeared_objects, &delete_mask);
+        let (r2, kv, asset) = multiplex_delete(deletions);
         let (delete_objstore, delete_kv, delete_asset) = join!(
-            self.delete_objstore(r2_deletions.into_iter()),
-            self.delete_kv(kv_deletions.into_iter()),
-            self.delete_asset(asset_deletions.into_iter()),
+            self.delete_objstore(r2.into_iter()),
+            self.delete_kv(kv.into_iter()),
+            self.delete_asset(asset.into_iter()),
         );
         delete_objstore.map_err(JobError::ObjectStorage)?;
         delete_kv.map_err(JobError::Kv)?;
