@@ -72,7 +72,6 @@ struct QueryResultMeta {
 struct QueryResult<R> {
     meta: QueryResultMeta,
     results: Vec<R>,
-    success: Option<bool>,
 }
 
 impl Client {

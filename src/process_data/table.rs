@@ -478,7 +478,7 @@ struct MarkdownImageUploader<'a> {
 }
 
 impl<'a> markdown::resolver::ImageUploadLocator for MarkdownImageUploader<'a> {
-    fn into_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta> {
+    fn to_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta> {
         let (width, height) = image.body.dimensions();
         let meta = ImageReferenceMeta {
             width,

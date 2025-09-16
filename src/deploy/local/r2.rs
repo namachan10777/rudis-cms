@@ -10,10 +10,10 @@ pub enum Error {
     AggregateBody(ByteStreamError),
 }
 
+type Bucket = HashMap<String, (bytes::Bytes, String)>;
+
 pub struct Client {
-    map: tokio::sync::Mutex<
-        HashMap<String, tokio::sync::Mutex<HashMap<String, (bytes::Bytes, String)>>>,
-    >,
+    map: tokio::sync::Mutex<HashMap<String, tokio::sync::Mutex<Bucket>>>,
 }
 
 impl job::storage::r2::Client for Client {

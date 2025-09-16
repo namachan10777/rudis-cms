@@ -12,7 +12,7 @@ pub mod storage;
 
 use crate::{
     process_data::{self, StorageContent, StoragePointer},
-    schema,
+    schema::{self, CollectionSchema},
 };
 
 #[derive(Hash, PartialEq, Eq)]
@@ -200,7 +200,7 @@ impl<
 {
     async fn fetch_objects_metadata(
         &self,
-        sqls: &sql::SqlStatements,
+        schema: &CollectionSchema,
     ) -> Result<
         IndexMap<blake3::Hash, process_data::StoragePointer>,
         JobError<D::Error, K::Error, O::Error, A::Error>,
@@ -219,7 +219,7 @@ impl<
         }
         let objects = self
             .d1
-            .query::<Row, &str>(&sqls.fetch_objects, &[])
+            .query::<Row, &str>(&sql::fetch_objects(schema), &[])
             .await
             .map_err(JobError::Database)?
             .into_iter()
@@ -310,23 +310,23 @@ impl<
 
     async fn full_sync_db(
         &self,
-        sqls: &sql::SqlStatements,
+        schema: &CollectionSchema,
         tables: &process_data::table::Tables,
     ) -> Result<(), D::Error> {
         let param = serde_json::to_string(tables).expect("tables must be encodable");
-        for statement in &sqls.upsert {
+        for (table, schema) in &schema.tables {
             self.d1
-                .query::<(), _>(statement, &[&param.as_str()])
+                .query::<(), _>(&sql::upsert(table, schema), &[&param.as_str()])
                 .await?;
         }
         self.d1
-            .query::<(), _>(&sqls.cleanup, &[&param.as_str()])
+            .query::<(), _>(&sql::cleanup(schema), &[&param.as_str()])
             .await?;
         Ok(())
     }
 
-    async fn create_tables_if_not_exist(&self, sqls: &sql::SqlStatements) -> Result<(), D::Error> {
-        self.d1.query::<(), &str>(&sqls.ddl, &[]).await?;
+    async fn create_tables_if_not_exist(&self, schema: &CollectionSchema) -> Result<(), D::Error> {
+        self.d1.query::<(), &str>(&sql::ddl(schema), &[]).await?;
         Ok(())
     }
 
@@ -337,11 +337,10 @@ impl<
         uploads: process_data::table::Uploads,
         force: bool,
     ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>> {
-        let ctx = sql::SqlStatements::new(schema);
-        self.create_tables_if_not_exist(&ctx)
+        self.create_tables_if_not_exist(schema)
             .await
             .map_err(JobError::Database)?;
-        let present_objects = self.fetch_objects_metadata(&ctx).await?;
+        let present_objects = self.fetch_objects_metadata(schema).await?;
         let delete_mask = uploads
             .iter()
             .map(|upload| &upload.pointer)
@@ -360,11 +359,11 @@ impl<
         upload_kv.map_err(JobError::Kv)?;
         upload_asset.map_err(JobError::Asset)?;
 
-        self.full_sync_db(&ctx, tables)
+        self.full_sync_db(schema, tables)
             .await
             .map_err(JobError::Database)?;
 
-        let appeared_objects = self.fetch_objects_metadata(&ctx).await?;
+        let appeared_objects = self.fetch_objects_metadata(schema).await?;
         let deletions = disappeared_objects(present_objects, &appeared_objects, &delete_mask);
         let (r2, kv, asset) = multiplex_delete(deletions);
         let (delete_objstore, delete_kv, delete_asset) = join!(

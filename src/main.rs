@@ -110,7 +110,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 }
                 let schema = schema::TableSchema::compile(collection)?;
 
-                let tasks = glob::glob(&collection.glob)?.into_iter().map(|path| {
+                let tasks = glob::glob(&collection.glob)?.map(|path| {
                     let hasher = hasher.clone();
                     let schema = &schema;
                     async move {

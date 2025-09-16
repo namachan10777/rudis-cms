@@ -49,7 +49,7 @@ pub(super) enum ImageResolved {
 }
 
 pub trait ImageUploadLocator {
-    fn into_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta>;
+    fn to_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta>;
 }
 
 impl<'a> ImageSrcExtractor<'a> {
@@ -74,7 +74,7 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let reference = image_locator.into_location(image);
+                    let reference = image_locator.to_location(image);
                     Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }

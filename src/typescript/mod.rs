@@ -42,11 +42,11 @@ fn generate_markdown_keep_types(
         if keep == "ImageKeep" {
             write!(
                 out,
-                "\n| rudis.{keep}<rudis.{}>",
+                "\n  | rudis.{keep}<rudis.{}>",
                 storage_pointer(image_storage)
             )?;
         } else {
-            write!(out, "\n| rudis.{keep}")?;
+            write!(out, "\n  | rudis.{keep}")?;
         }
     }
     writeln!(out, ";")
@@ -74,7 +74,7 @@ fn generate_column_type(
             writeln!(
                 out,
                 "export type {upper_camel_case}Column = rudis.MarkdownReference<rudis.{}>;",
-                storage_pointer(&storage)
+                storage_pointer(storage)
             )?;
         }
         FieldType::File { storage, .. } => {
@@ -99,7 +99,7 @@ fn generate_column_type(
 }
 
 fn generate_table_type_field(out: &mut String, name: &str, field: &FieldType) -> std::fmt::Result {
-    write!(out, "{name}: ")?;
+    write!(out, "  {name}: ")?;
     match field {
         FieldType::Boolean { .. } => {
             write!(out, "boolean")?;
@@ -137,7 +137,7 @@ fn generate_table_type_field(out: &mut String, name: &str, field: &FieldType) ->
         FieldType::Records { .. } => {}
     }
     if !field.is_required_field() {
-        writeln!(out, "| null;")?;
+        writeln!(out, " | null;")?;
     } else {
         writeln!(out, ";")?;
     }
@@ -148,7 +148,7 @@ fn generate_table_type<'o, 'i>(
     out: &'o mut String,
     mut fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
 ) -> std::fmt::Result {
-    write!(out, "export interface Table {{")?;
+    writeln!(out, "export interface Table {{")?;
     fields.try_for_each(|(name, field)| generate_table_type_field(out, name, field))?;
     writeln!(out, "}}")
 }
@@ -157,16 +157,13 @@ fn generate_frontmatter_type<'o, 'i>(
     out: &'o mut String,
     mut fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
 ) -> std::fmt::Result {
-    write!(out, "export interface Frontmatter {{")?;
-    fields.try_for_each(|(name, field)| {
-        match field {
-            FieldType::Markdown { .. } => {}
-            FieldType::Records { table, .. } => {
-                writeln!(out, "{name}: {table}.FrontmatterWithMarkdownColumns[];")?
-            }
-            field => generate_table_type_field(out, name, field)?,
+    writeln!(out, "export interface Frontmatter {{")?;
+    fields.try_for_each(|(name, field)| match field {
+        FieldType::Markdown { .. } => Ok(()),
+        FieldType::Records { table, .. } => {
+            writeln!(out, "  {name}: {table}.FrontmatterWithMarkdownColumns[];")
         }
-        generate_table_type_field(out, name, field)
+        field => generate_table_type_field(out, name, field),
     })?;
     writeln!(out, "}}")
 }
@@ -175,15 +172,12 @@ fn generate_frontmatter_with_markdown_columns_type<'o, 'i>(
     out: &'o mut String,
     mut fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
 ) -> std::fmt::Result {
-    write!(out, "export interface FrontmatterWithMarkdownColumns {{")?;
-    fields.try_for_each(|(name, field)| {
-        match field {
-            FieldType::Records { table, .. } => {
-                writeln!(out, "{name}: {table}.FrontmatterWithMarkdownColumns[];")?
-            }
-            field => generate_table_type_field(out, name, field)?,
+    writeln!(out, "export interface FrontmatterWithMarkdownColumns {{")?;
+    fields.try_for_each(|(name, field)| match field {
+        FieldType::Records { table, .. } => {
+            writeln!(out, "  {name}: {table}.FrontmatterWithMarkdownColumns[];")
         }
-        generate_table_type_field(out, name, field)
+        field => generate_table_type_field(out, name, field),
     })?;
     writeln!(out, "}}")
 }
@@ -193,8 +187,8 @@ fn generate_sub_table_imports<'i, 'o>(
     mut fields: impl Iterator<Item = &'i FieldType>,
 ) -> std::fmt::Result {
     fields.try_for_each(|field| {
-        if let &FieldType::Records { ref table, .. } = field {
-            writeln!(out, r#"import * as {table} from "./table.ts""#)?;
+        if let FieldType::Records { table, .. } = field {
+            writeln!(out, r#"import * as {table} from "./{table}.ts""#)?;
         }
         Ok(())
     })

@@ -31,11 +31,11 @@ fn generate_markdown_keep_validators(
         if keep == "imageKeep" {
             write!(
                 out,
-                "\n| rudis.{keep}(rudis.{})",
+                "\n  | rudis.{keep}(rudis.{})",
                 storage_pointer(image_storage)
             )?;
         } else {
-            write!(out, "\n| rudis.{keep}")?;
+            write!(out, "\n  | rudis.{keep}")?;
         }
     }
     writeln!(out, ";")
@@ -63,7 +63,7 @@ fn generate_column_type(
             writeln!(
                 out,
                 "export type {camel_case}Column = rudis.markdownReference(rudis.{});",
-                storage_pointer(&storage)
+                storage_pointer(storage)
             )
         }
         FieldType::File { storage, .. } => {
@@ -91,7 +91,7 @@ fn generate_table_validator_field(
     name: &str,
     field: &FieldType,
 ) -> std::fmt::Result {
-    write!(out, "{name}: ")?;
+    write!(out, "  {name}: ")?;
     if !field.is_required_field() {
         write!(out, "v.nullable(")?;
     }
@@ -143,19 +143,16 @@ fn generate_frontmatter_type<'o, 'i>(
     out: &'o mut String,
     mut fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
 ) -> std::fmt::Result {
-    write!(out, "export const frontmatter = v.object({{")?;
-    fields.try_for_each(|(name, field)| {
-        match field {
-            FieldType::Markdown { .. } => {}
-            FieldType::Records { table, .. } => {
-                writeln!(
-                    out,
-                    "{name}: v.array({table}.frontmatterWithMarkdownColumns),"
-                )?;
-            }
-            field => generate_table_validator_field(out, name, field)?,
+    writeln!(out, "export const frontmatter = v.object({{")?;
+    fields.try_for_each(|(name, field)| match field {
+        FieldType::Markdown { .. } => Ok(()),
+        FieldType::Records { table, .. } => {
+            writeln!(
+                out,
+                "  {name}: v.array({table}.frontmatterWithMarkdownColumns),"
+            )
         }
-        generate_table_validator_field(out, name, field)
+        field => generate_table_validator_field(out, name, field),
     })?;
     writeln!(out, "}});")
 }
@@ -164,19 +161,16 @@ fn generate_frontmatter_with_markdown_columns_type<'o, 'i>(
     out: &'o mut String,
     mut fields: impl Iterator<Item = (&'i String, &'i FieldType)>,
 ) -> std::fmt::Result {
-    write!(
+    writeln!(
         out,
         "export const frontmatterWithMarkdownColumns = v.object({{"
     )?;
-    fields.try_for_each(|(name, field)| {
-        match field {
-            FieldType::Records { table, .. } => writeln!(
-                out,
-                "{name}: v.array({table}.frontmatterWithMarkdownColumns),"
-            )?,
-            field => generate_table_validator_field(out, name, field)?,
-        }
-        generate_table_validator_field(out, name, field)
+    fields.try_for_each(|(name, field)| match field {
+        FieldType::Records { table, .. } => writeln!(
+            out,
+            "  {name}: v.array({table}.frontmatterWithMarkdownColumns),"
+        ),
+        field => generate_table_validator_field(out, name, field),
     })?;
     writeln!(out, "}});")
 }
@@ -186,8 +180,8 @@ fn generate_sub_table_imports<'i, 'o>(
     mut fields: impl Iterator<Item = &'i FieldType>,
 ) -> std::fmt::Result {
     fields.try_for_each(|field| {
-        if let &FieldType::Records { ref table, .. } = field {
-            writeln!(out, r#"import * as {table} from "./table-validator.ts""#)?;
+        if let FieldType::Records { table, .. } = field {
+            writeln!(out, r#"import * as {table} from "./{table}-validator.ts""#)?;
         }
         Ok(())
     })

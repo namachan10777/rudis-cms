@@ -15,7 +15,6 @@ futures = { version = "0.3", default-features = false, features = ["async-await"
 glob = "0.3"
 image = { version = "0.25", features = ["serde"] }
 katex = "0.4"
-liquid = "0.26"
 pulldown-cmark = "0.13"
 roxmltree = "0.20"
 serde = { version = "1", features = ["derive"] }
