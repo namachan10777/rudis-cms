@@ -3,8 +3,9 @@ use std::{collections::HashSet, fmt::Debug, path::PathBuf};
 use derive_debug::Dbg;
 use futures::{future::try_join_all, join};
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{json::JsonString, serde_as};
+use sqlx::FromRow;
 
 mod sql;
 pub mod storage;
@@ -204,12 +205,16 @@ impl<
         IndexMap<blake3::Hash, process_data::StoragePointer>,
         JobError<D::Error, K::Error, O::Error, A::Error>,
     > {
+        #[derive(Serialize, Deserialize)]
+        struct B3Hash(#[serde(deserialize_with = "deserialize_hash")] blake3::Hash);
+
         #[serde_as]
-        #[derive(Deserialize)]
+        #[derive(Deserialize, FromRow)]
         struct Row {
-            #[serde(deserialize_with = "deserialize_hash")]
-            hash: blake3::Hash,
+            #[sqlx(json)]
+            hash: B3Hash,
             #[serde_as(as = "JsonString")]
+            #[sqlx(json)]
             storage: process_data::StoragePointer,
         }
         let objects = self
@@ -218,7 +223,7 @@ impl<
             .await
             .map_err(JobError::Database)?
             .into_iter()
-            .map(|row| (row.hash, row.storage))
+            .map(|row| (row.hash.0, row.storage))
             .collect::<IndexMap<_, _>>();
         Ok(objects)
     }

@@ -1,14 +1,14 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Pair {
-    key: String,
-    value: String,
-    base64: bool,
-    expiration: Option<i64>,
-    expiration_ttl: Option<u64>,
-    metadata: Option<serde_json::Value>,
+    pub key: String,
+    pub value: String,
+    pub base64: bool,
+    pub expiration: Option<i64>,
+    pub expiration_ttl: Option<u64>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Default)]

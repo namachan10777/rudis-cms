@@ -91,10 +91,14 @@ impl Client {
 
 impl job::storage::sqlite::Client for Client {
     type Error = Error;
-    async fn query<R: serde::de::DeserializeOwned, P: job::storage::sqlite::Param>(
+    async fn query<
+        'q,
+        R: serde::de::DeserializeOwned + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow>,
+        P: job::storage::sqlite::Param + sqlx::Encode<'q, sqlx::Sqlite>,
+    >(
         &self,
-        statement: &str,
-        params: &[&P],
+        statement: &'q str,
+        params: &'q [&'q P],
     ) -> Result<Vec<R>, Self::Error> {
         let mut response = self
             .client

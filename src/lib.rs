@@ -81,5 +81,5 @@ pub enum ErrorDetail {
     #[error("Invalid parent ID names")]
     InvalidParentIdNames,
     #[error("SQL Error: {0}")]
-    Query(rusqlite::Error),
+    Query(sqlx::Error),
 }

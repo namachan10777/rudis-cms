@@ -102,7 +102,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     &r2_secret_access_key,
                 )
                 .await;
-                let asset = rudis_cms::deploy::asset::Client {};
+                let asset = rudis_cms::deploy::cloudflare::asset::Client {};
                 let executor = rudis_cms::job::JobExecutor { kv, d1, r2, asset };
 
                 if let Some(basedir) = basedir {

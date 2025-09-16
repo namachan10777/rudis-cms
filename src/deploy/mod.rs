@@ -1,2 +1,2 @@
-pub mod asset;
 pub mod cloudflare;
+pub mod local;
