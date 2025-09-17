@@ -2,6 +2,7 @@ use crate::schema::{CollectionSchema, TableSchema};
 
 mod cleanup;
 mod ddl;
+mod drop_all_table;
 mod fetch_objects;
 mod upsert;
 
@@ -26,5 +27,11 @@ pub fn fetch_objects(schema: &CollectionSchema) -> String {
 pub fn upsert(table: &str, schema: &TableSchema) -> String {
     let mut out = String::new();
     upsert::generate(&mut out, table, schema).unwrap();
+    out
+}
+
+pub fn drop_all_tables(schema: &CollectionSchema) -> String {
+    let mut out = String::new();
+    drop_all_table::generate(&mut out, schema).unwrap();
     out
 }

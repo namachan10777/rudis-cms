@@ -34,5 +34,7 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
         writeln!(out, "UNION ALL")?;
         generate_statement(out, table, column)?;
     }
+    out.pop();
+    out.push_str(";\n");
     Ok(())
 }

@@ -4,7 +4,7 @@ use clap::Parser;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 use rudis_cms::{config, deploy, job, schema};
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(clap::Subcommand)]
 enum ShowSchemaCommand {
@@ -177,8 +177,11 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let basedir = config_path.parent();
             hasher.update(config.as_bytes());
             let collection: config::Collection = serde_yaml::from_str(&config)?;
+            info!("config loaded");
             let storage = deploy::local::storage::LocalStorage::open(&storage).await?;
+            info!("storage db created");
             let db = deploy::local::db::LocalDatabase::open(&db).await?;
+            info!("main db created");
 
             let executor = rudis_cms::job::JobExecutor {
                 kv: storage.kv_client(),
@@ -191,6 +194,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 std::env::set_current_dir(basedir)?;
             }
             let schema = schema::TableSchema::compile(&collection)?;
+            info!("schema compiled");
 
             let tasks = glob::glob(&collection.glob)?.map(|path| {
                 let hasher = hasher.clone();
@@ -217,8 +221,11 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 }
                 uploads.append(&mut upload_flakes);
             }
+            info!("all data prepared");
 
+            executor.drop_all_table_for_dump(&schema).await?;
             executor.batch(&schema, &tables, uploads, true).await?;
+            info!("batch completed");
             Ok(())
         }
     }

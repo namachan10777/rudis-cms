@@ -4,3 +4,4 @@
 .blindcms
 /rudis-example-schema
 /node_modules
+*.db

@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use crate::job;
+use tracing::{error, info, warn};
 
 pub struct LocalDatabase {
     pool: sqlx::SqlitePool,
@@ -18,8 +19,14 @@ pub struct Client {
 
 impl LocalDatabase {
     pub async fn open(url: &str) -> Result<Self, sqlx::Error> {
-        let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)?;
-        let pool = sqlx::sqlite::SqlitePool::connect_with(options).await?;
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)
+            .inspect_err(|error| error!(%error, %url, "Failed to open local database"))?;
+        let pool = sqlx::pool::PoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .inspect_err(|error| error!(%error, %url, "Failed to open local database"))?;
+        info!(url, "database opened");
         Ok(Self { pool })
     }
 
@@ -53,6 +60,10 @@ impl job::storage::sqlite::Client for Client {
             sqlx::query_as::<sqlx::Sqlite, R>(statement),
             |query, param| query.bind(param),
         );
-        query.fetch_all(&self.pool).await.map_err(Error::Sqlite)
+        query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Sqlite)
+            .inspect_err(|error| warn!(%error, statement, "failed to execute query"))
     }
 }

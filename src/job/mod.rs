@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{json::JsonString, serde_as};
 use sqlx::FromRow;
+use tracing::error;
 
 pub mod sql;
 pub mod storage;
@@ -356,11 +357,21 @@ impl<
         tables: &process_data::table::Tables,
         uploads: process_data::table::Uploads,
         force: bool,
-    ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>> {
+    ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>>
+    where
+        D::Error: std::error::Error,
+        K::Error: std::error::Error,
+        O::Error: std::error::Error,
+        A::Error: std::error::Error,
+    {
         self.create_tables_if_not_exist(schema)
             .await
-            .map_err(JobError::Database)?;
-        let present_objects = self.fetch_objects_metadata(schema).await?;
+            .map_err(JobError::Database)
+            .inspect_err(|error| error!(%error, "failed to execute DDL"))?;
+        let present_objects = self
+            .fetch_objects_metadata(schema)
+            .await
+            .inspect_err(|error| error!(%error, "failed to fetch object list"))?;
         let delete_mask = uploads
             .iter()
             .map(|upload| &upload.pointer)
@@ -375,15 +386,25 @@ impl<
             self.upload_kv(kv.into_iter()),
             self.upload_asset(asset.into_iter()),
         );
-        upload_r2.map_err(JobError::ObjectStorage)?;
-        upload_kv.map_err(JobError::Kv)?;
-        upload_asset.map_err(JobError::Asset)?;
+        upload_r2
+            .map_err(JobError::ObjectStorage)
+            .inspect_err(|error| error!(%error, "failed to upload objstore object list"))?;
+        upload_kv
+            .map_err(JobError::Kv)
+            .inspect_err(|error| error!(%error, "failed to upload kv object list"))?;
+        upload_asset
+            .map_err(JobError::Asset)
+            .inspect_err(|error| error!(%error, "failed to upload asset object list"))?;
 
         self.full_sync_db(schema, tables)
             .await
-            .map_err(JobError::Database)?;
+            .map_err(JobError::Database)
+            .inspect_err(|error| error!(%error, "failed to synchronize database"))?;
 
-        let appeared_objects = self.fetch_objects_metadata(schema).await?;
+        let appeared_objects = self
+            .fetch_objects_metadata(schema)
+            .await
+            .inspect_err(|error| error!(%error, "failed to fetch object list"))?;
         let deletions = disappeared_objects(present_objects, &appeared_objects, &delete_mask);
         let (r2, kv, asset) = multiplex_delete(deletions);
         let (delete_objstore, delete_kv, delete_asset) = join!(
@@ -391,10 +412,34 @@ impl<
             self.delete_kv(kv.into_iter()),
             self.delete_asset(asset.into_iter()),
         );
-        delete_objstore.map_err(JobError::ObjectStorage)?;
-        delete_kv.map_err(JobError::Kv)?;
-        delete_asset.map_err(JobError::Asset)?;
+        delete_objstore
+            .map_err(JobError::ObjectStorage)
+            .inspect_err(|error| error!(%error, "failed to delete objstore object"))?;
+        delete_kv
+            .map_err(JobError::Kv)
+            .inspect_err(|error| error!(%error, "failed to delete kv object"))?;
+        delete_asset
+            .map_err(JobError::Asset)
+            .inspect_err(|error| error!(%error, "failed to delete asset object"))?;
 
+        Ok(())
+    }
+
+    pub async fn drop_all_table_for_dump(
+        &self,
+        schema: &CollectionSchema,
+    ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>>
+    where
+        D::Error: std::error::Error,
+        K::Error: std::error::Error,
+        O::Error: std::error::Error,
+        A::Error: std::error::Error,
+    {
+        self.d1
+            .query::<(), &str>(&sql::drop_all_tables(schema), &[])
+            .await
+            .map_err(JobError::Database)
+            .inspect_err(|error| error!(%error, "failed to synchronize database"))?;
         Ok(())
     }
 }
