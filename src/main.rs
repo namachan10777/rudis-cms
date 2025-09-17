@@ -63,7 +63,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     if upsert {
                         for (table, schema) in &schema.tables {
                             println!("-- {name}:{table}: upsert.sql");
-                            println!("{}", job::sql::upsert(table, &schema));
+                            println!("{}", job::sql::upsert(table, schema));
                         }
                     }
                     if cleanup {

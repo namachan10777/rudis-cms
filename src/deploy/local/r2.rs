@@ -17,6 +17,20 @@ pub struct Client {
     map: tokio::sync::Mutex<HashMap<String, tokio::sync::Mutex<Bucket>>>,
 }
 
+impl Client {
+    #[cfg(test)]
+    pub(crate) async fn get(&self, bucket: &str, key: &str) -> Option<(bytes::Bytes, String)> {
+        self.map
+            .lock()
+            .await
+            .get(bucket)?
+            .lock()
+            .await
+            .get(key)
+            .cloned()
+    }
+}
+
 impl job::storage::r2::Client for &Client {
     type Error = Error;
     async fn delete(&self, bucket: String, key: String) -> Result<(), Self::Error> {

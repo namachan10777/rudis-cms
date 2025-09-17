@@ -150,10 +150,6 @@ impl StoragePointer {
     }
 }
 
-fn serialize_hash<S: serde::Serializer>(contact: &blake3::Hash, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&contact.to_string())
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImageReferenceMeta {
     pub width: u32,
@@ -162,9 +158,29 @@ pub struct ImageReferenceMeta {
     pub derived_id: String,
 }
 
+mod serde_hash {
+    use serde::Deserialize as _;
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<blake3::Hash, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use std::str::FromStr as _;
+        let s = String::deserialize(deserializer)?;
+        blake3::Hash::from_str(&s).map_err(serde::de::Error::custom)
+    }
+
+    pub fn serialize<S: serde::Serializer>(
+        contact: &blake3::Hash,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&contact.to_string())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectReference<M> {
-    #[serde(serialize_with = "serialize_hash")]
+    #[serde(with = "serde_hash")]
     pub hash: blake3::Hash,
     pub size: u64,
     pub content_type: String,
