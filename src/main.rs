@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
-use rudis_cms::{config, job, schema};
+use rudis_cms::{config, deploy, job, schema};
 use tracing::error;
 
 #[derive(clap::Subcommand)]
@@ -35,6 +35,12 @@ enum SubCommand {
     Batch {
         #[clap(short, long)]
         force: bool,
+    },
+    Dump {
+        #[clap(long)]
+        storage: String,
+        #[clap(long)]
+        db: String,
     },
 }
 
@@ -162,6 +168,57 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             }
 
             executor.batch(&schema, &tables, uploads, force).await?;
+            Ok(())
+        }
+        SubCommand::Dump { storage, db } => {
+            let mut hasher = blake3::Hasher::new();
+            let config = tokio::fs::read_to_string(&opts.config).await?;
+            let config_path = opts.config.canonicalize()?;
+            let basedir = config_path.parent();
+            hasher.update(config.as_bytes());
+            let collection: config::Collection = serde_yaml::from_str(&config)?;
+            let storage = deploy::local::storage::LocalStorage::open(&storage).await?;
+            let db = deploy::local::db::LocalDatabase::open(&db).await?;
+
+            let executor = rudis_cms::job::JobExecutor {
+                kv: storage.kv_client(),
+                d1: db.client(),
+                r2: storage.r2_client(),
+                asset: storage.asset_client(),
+            };
+
+            if let Some(basedir) = basedir {
+                std::env::set_current_dir(basedir)?;
+            }
+            let schema = schema::TableSchema::compile(&collection)?;
+
+            let tasks = glob::glob(&collection.glob)?.map(|path| {
+                let hasher = hasher.clone();
+                let schema = &schema;
+                let collection = &collection;
+                async move {
+                    let path = path?;
+                    rudis_cms::process_data::table::push_rows_from_document(
+                        &collection.table,
+                        hasher,
+                        schema,
+                        &collection.syntax,
+                        path,
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+                }
+            });
+            let mut tables = IndexMap::<_, Vec<_>>::new();
+            let mut uploads = Vec::default();
+            for (table_flakes, mut upload_flakes) in try_join_all(tasks).await? {
+                for (table, mut rows) in table_flakes {
+                    tables.entry(table).or_default().append(&mut rows);
+                }
+                uploads.append(&mut upload_flakes);
+            }
+
+            executor.batch(&schema, &tables, uploads, true).await?;
             Ok(())
         }
     }

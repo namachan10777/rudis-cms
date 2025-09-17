@@ -1,43 +1,43 @@
-blog:
-  glob: "**/*.md"
-  table: posts
-  database_id: xxx
-  syntax:
+glob: "**/*.md"
+name: posts
+table: posts
+database_id: xxx
+syntax:
+  type: markdown
+  column: body
+schema:
+  id:
+    type: id
+  hash:
+    type: hash
+  body:
     type: markdown
-    column: body
-  schema:
-    id:
-      type: id
-    hash:
-      type: hash
-    body:
-      type: markdown
-      image:
-        table: post_images
-        inherit_ids: [post_id]
-        embed_svg_threshold: 8192
-        storage:
-          type: r2
-          bucket: namachan10777dev
-          prefix: post/images
-      config: {}
-      storage:
-        type: kv
-        namespace: kv
-    og_image:
-      type: image
+    image:
+      table: post_images
+      inherit_ids: [post_id]
+      embed_svg_threshold: 8192
       storage:
         type: r2
         bucket: namachan10777dev
-        prefix: post/og
-    published:
-      type: datetime
-      index: true
-      required: true
-    tags:
-      type: records
-      inherit_ids: [post_id]
-      table: post_tags
-      schema:
-        tag:
-          type: id
+        prefix: post/images
+    config: {}
+    storage:
+      type: kv
+      namespace: kv
+  og_image:
+    type: image
+    storage:
+      type: r2
+      bucket: namachan10777dev
+      prefix: post/og
+  published:
+    type: datetime
+    index: true
+    required: true
+  tags:
+    type: records
+    inherit_ids: [post_id]
+    table: post_tags
+    schema:
+      tag:
+        type: id
