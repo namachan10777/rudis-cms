@@ -1,0 +1,4 @@
+id: gaius
+attachments:
+  - id: caesar
+    file: ./files/caesar.txt

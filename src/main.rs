@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
-use rudis_cms::{config, schema};
+use rudis_cms::{config, job, schema};
 use tracing::error;
 
 #[derive(clap::Subcommand)]
@@ -13,8 +13,16 @@ enum ShowSchemaCommand {
         print: bool,
         #[clap(short, long)]
         save: Option<PathBuf>,
-        #[clap(short, long)]
+        #[clap(long)]
         valibot: bool,
+    },
+    Sql {
+        #[clap(long)]
+        upsert: bool,
+        #[clap(long)]
+        cleanup: bool,
+        #[clap(long)]
+        fetch_objects: bool,
     },
 }
 
@@ -42,33 +50,52 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.subcmd {
         SubCommand::ShowSchema { cmd } => {
             let config = tokio::fs::read_to_string(&opts.config).await?;
-            let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
+            let collection: config::Collection = serde_yaml::from_str(&config)?;
+            let name = &collection.name;
             match cmd {
+                ShowSchemaCommand::Sql {
+                    upsert,
+                    cleanup,
+                    fetch_objects,
+                } => {
+                    let schema = schema::TableSchema::compile(&collection)?;
+                    println!("{}", job::sql::ddl(&schema));
+                    if upsert {
+                        for (table, schema) in &schema.tables {
+                            println!("-- {name}:{table}: upsert.sql");
+                            println!("{}", job::sql::upsert(table, &schema));
+                        }
+                    }
+                    if cleanup {
+                        println!("-- {name}: cleanup.sql");
+                        println!("{}", job::sql::cleanup(&schema));
+                    }
+                    if fetch_objects {
+                        println!("-- {name}: fetch_object.sql");
+                        println!("{}", job::sql::fetch_objects(&schema));
+                    }
+                }
                 ShowSchemaCommand::Typescript {
                     print,
                     ref save,
                     valibot,
                 } => {
                     if print {
-                        for (name, collection) in &config {
-                            let schema = schema::TableSchema::compile(collection)?;
-                            let files = rudis_cms::typescript::file_map(&schema, name, valibot);
-                            for (_, content) in &files {
-                                println!("// {name}");
-                                print!("{content}");
-                            }
+                        let schema = schema::TableSchema::compile(&collection)?;
+                        let files = rudis_cms::typescript::file_map(&schema, name, valibot);
+                        for (_, content) in &files {
+                            println!("// {name}");
+                            print!("{content}");
                         }
                     }
                     if let Some(basedir) = save {
                         tokio::fs::create_dir_all(basedir).await?;
-                        for (name, collection) in &config {
-                            let schema = schema::TableSchema::compile(collection)?;
-                            let files = rudis_cms::typescript::file_map(&schema, name, valibot);
-                            tokio::fs::create_dir_all(basedir.join(name)).await?;
-                            for (filename, content) in &files {
-                                let path = basedir.join(name).join(filename);
-                                tokio::fs::write(&path, content).await?;
-                            }
+                        let schema = schema::TableSchema::compile(&collection)?;
+                        let files = rudis_cms::typescript::file_map(&schema, name, valibot);
+                        tokio::fs::create_dir_all(basedir.join(name)).await?;
+                        for (filename, content) in &files {
+                            let path = basedir.join(name).join(filename);
+                            tokio::fs::write(&path, content).await?;
                         }
                     }
                 }
@@ -81,62 +108,60 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
             let config_path = opts.config.canonicalize()?;
             let basedir = config_path.parent();
             hasher.update(config.as_bytes());
-            let config: IndexMap<String, config::Collection> = serde_yaml::from_str(&config)?;
+            let collection: config::Collection = serde_yaml::from_str(&config)?;
 
             let cf_account_id = std::env::var("CF_ACCOUNT_ID").unwrap();
             let cf_api_token = std::env::var("CF_API_TOKEN").unwrap();
             let r2_access_key_id = std::env::var("R2_ACCESS_KEY_ID").unwrap();
             let r2_secret_access_key = std::env::var("R2_SECRET_ACCESS_KEY").unwrap();
 
-            for (_, collection) in &config {
-                let kv =
-                    rudis_cms::deploy::cloudflare::kv::Client::new(&cf_account_id, &cf_api_token);
-                let d1 = rudis_cms::deploy::cloudflare::d1::Client::new(
-                    cf_account_id.clone(),
-                    cf_api_token.clone(),
-                    collection.database_id.clone(),
-                )?;
-                let r2 = rudis_cms::deploy::cloudflare::r2::Client::new(
-                    &cf_account_id,
-                    &r2_access_key_id,
-                    &r2_secret_access_key,
-                )
-                .await;
-                let asset = rudis_cms::deploy::cloudflare::asset::Client {};
-                let executor = rudis_cms::job::JobExecutor { kv, d1, r2, asset };
+            let kv = rudis_cms::deploy::cloudflare::kv::Client::new(&cf_account_id, &cf_api_token);
+            let d1 = rudis_cms::deploy::cloudflare::d1::Client::new(
+                cf_account_id.clone(),
+                cf_api_token.clone(),
+                collection.database_id.clone(),
+            )?;
+            let r2 = rudis_cms::deploy::cloudflare::r2::Client::new(
+                &cf_account_id,
+                &r2_access_key_id,
+                &r2_secret_access_key,
+            )
+            .await;
+            let asset = rudis_cms::deploy::cloudflare::asset::Client {};
+            let executor = rudis_cms::job::JobExecutor { kv, d1, r2, asset };
 
-                if let Some(basedir) = basedir {
-                    std::env::set_current_dir(basedir)?;
-                }
-                let schema = schema::TableSchema::compile(collection)?;
-
-                let tasks = glob::glob(&collection.glob)?.map(|path| {
-                    let hasher = hasher.clone();
-                    let schema = &schema;
-                    async move {
-                        let path = path?;
-                        rudis_cms::process_data::table::push_rows_from_document(
-                            &collection.table,
-                            hasher,
-                            schema,
-                            &collection.syntax,
-                            path,
-                        )
-                        .await
-                        .map_err(anyhow::Error::from)
-                    }
-                });
-                let mut tables = IndexMap::<_, Vec<_>>::new();
-                let mut uploads = Vec::default();
-                for (table_flakes, mut upload_flakes) in try_join_all(tasks).await? {
-                    for (table, mut rows) in table_flakes {
-                        tables.entry(table).or_default().append(&mut rows);
-                    }
-                    uploads.append(&mut upload_flakes);
-                }
-
-                executor.batch(&schema, &tables, uploads, force).await?;
+            if let Some(basedir) = basedir {
+                std::env::set_current_dir(basedir)?;
             }
+            let schema = schema::TableSchema::compile(&collection)?;
+
+            let tasks = glob::glob(&collection.glob)?.map(|path| {
+                let hasher = hasher.clone();
+                let schema = &schema;
+                let collection = &collection;
+                async move {
+                    let path = path?;
+                    rudis_cms::process_data::table::push_rows_from_document(
+                        &collection.table,
+                        hasher,
+                        schema,
+                        &collection.syntax,
+                        path,
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+                }
+            });
+            let mut tables = IndexMap::<_, Vec<_>>::new();
+            let mut uploads = Vec::default();
+            for (table_flakes, mut upload_flakes) in try_join_all(tasks).await? {
+                for (table, mut rows) in table_flakes {
+                    tables.entry(table).or_default().append(&mut rows);
+                }
+                uploads.append(&mut upload_flakes);
+            }
+
+            executor.batch(&schema, &tables, uploads, force).await?;
             Ok(())
         }
     }

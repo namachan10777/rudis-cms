@@ -10,11 +10,12 @@ pub enum Error {
     AggregateBody(ByteStreamError),
 }
 
+#[derive(Default)]
 pub struct Client {
     map: tokio::sync::Mutex<HashMap<String, tokio::sync::Mutex<HashMap<String, Pair>>>>,
 }
 
-impl job::storage::kv::Client for Client {
+impl job::storage::kv::Client for &Client {
     type Error = Error;
     async fn delete_multiple(&self, namespace: &str, keys: &[String]) -> Result<(), Self::Error> {
         let mut namespaces = self.map.lock().await;

@@ -1,0 +1,22 @@
+glob: "mail/**/*.yaml"
+table: mail
+name: mail
+database_id: deadbeef
+syntax:
+  type: yaml
+schema:
+  id:
+    type: id
+  attachments:
+    type: records
+    inherit_ids: [mail_id]
+    table: attachments
+    schema:
+      id:
+        type: id
+      file:
+        type: file
+        storage:
+          type: r2
+          bucket: assets
+          prefix: mail/attachments

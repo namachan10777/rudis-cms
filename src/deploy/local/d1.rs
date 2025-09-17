@@ -1,7 +1,7 @@
 use crate::job;
 
 pub struct LocalSqlite {
-    conn: sqlx::SqlitePool,
+    pub pool: sqlx::SqlitePool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +29,6 @@ impl job::storage::sqlite::Client for LocalSqlite {
             sqlx::query_as::<sqlx::Sqlite, R>(statement),
             |query, param| query.bind(param),
         );
-        query.fetch_all(&self.conn).await.map_err(Error::Sqlite)
+        query.fetch_all(&self.pool).await.map_err(Error::Sqlite)
     }
 }

@@ -55,7 +55,7 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
         if let Some(parent) = &schema.parent {
             writeln!(
                 out,
-                "  FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE CASCADE",
+                "  FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE CASCADE,",
                 schema.inherit_ids.join(", "),
                 parent.name,
                 parent.id_names.join(", "),
@@ -66,6 +66,7 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
             write!(out, "{inherit_id}, ")?;
         }
         writeln!(out, "{})", schema.id_name)?;
+        writeln!(out, ");")?;
         for (name, field) in &schema.fields {
             if !field.requires_index()
                 || matches!(
@@ -80,7 +81,7 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
             };
             writeln!(
                 out,
-                "CREATE INDEX IF NOT EXISTS index_{table}_{name} ON {table}({index})"
+                "CREATE INDEX IF NOT EXISTS index_{table}_{name} ON {table}({index});"
             )?;
         }
     }

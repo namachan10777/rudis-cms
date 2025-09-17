@@ -1,0 +1,6 @@
+id: flavius
+attachments:
+  - id: fimbria
+    file: ./files/fimbria.txt
+  - id: galerius
+    file: ./files/galerius.txt

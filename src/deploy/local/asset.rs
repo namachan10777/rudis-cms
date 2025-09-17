@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::job;
 
+#[derive(Default)]
 pub struct Client {
     map: tokio::sync::Mutex<HashMap<PathBuf, Box<[u8]>>>,
 }
@@ -9,7 +10,7 @@ pub struct Client {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {}
 
-impl job::storage::asset::Client for Client {
+impl job::storage::asset::Client for &Client {
     type Error = Error;
 
     async fn delete(&self, path: &std::path::Path) -> Result<(), Self::Error> {

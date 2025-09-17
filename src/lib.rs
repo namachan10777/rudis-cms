@@ -7,6 +7,8 @@ pub mod deploy;
 pub mod job;
 pub mod process_data;
 pub mod schema;
+#[cfg(test)]
+mod tests;
 pub mod typescript;
 
 #[derive(Debug, thiserror::Error)]

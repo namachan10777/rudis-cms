@@ -34,7 +34,7 @@ pub struct TableSchema {
 
 #[derive(Debug, Clone)]
 pub struct CollectionSchema {
-    pub(crate) tables: IndexMap<String, TableSchema>,
+    pub tables: IndexMap<String, TableSchema>,
 }
 
 #[derive(Debug, Clone)]

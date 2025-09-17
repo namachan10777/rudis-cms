@@ -12,11 +12,12 @@ pub enum Error {
 
 type Bucket = HashMap<String, (bytes::Bytes, String)>;
 
+#[derive(Default)]
 pub struct Client {
     map: tokio::sync::Mutex<HashMap<String, tokio::sync::Mutex<Bucket>>>,
 }
 
-impl job::storage::r2::Client for Client {
+impl job::storage::r2::Client for &Client {
     type Error = Error;
     async fn delete(&self, bucket: String, key: String) -> Result<(), Self::Error> {
         if let Some(bucket) = self.map.lock().await.get(&bucket) {

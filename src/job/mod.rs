@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, path::PathBuf};
+use std::{collections::HashSet, fmt::Debug, path::PathBuf, str::FromStr as _};
 
 use derive_debug::Dbg;
 use futures::{future::try_join_all, join};
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{json::JsonString, serde_as};
 use sqlx::FromRow;
 
-mod sql;
+pub mod sql;
 pub mod storage;
 
 use crate::{
@@ -208,10 +208,30 @@ impl<
         #[derive(Serialize, Deserialize)]
         struct B3Hash(#[serde(deserialize_with = "deserialize_hash")] blake3::Hash);
 
+        impl<'q> sqlx::Decode<'q, sqlx::Sqlite> for B3Hash {
+            fn decode(
+                value: <sqlx::Sqlite as sqlx::Database>::ValueRef<'q>,
+            ) -> Result<Self, sqlx::error::BoxDynError> {
+                let s = String::decode(value)?;
+                blake3::Hash::from_str(&s)
+                    .map_err::<sqlx::error::BoxDynError, _>(|e| Box::new(e))
+                    .map(B3Hash)
+            }
+        }
+
+        impl sqlx::Type<sqlx::Sqlite> for B3Hash {
+            fn type_info() -> <sqlx::Sqlite as sqlx::Database>::TypeInfo {
+                <String as sqlx::Type<sqlx::Sqlite>>::type_info()
+            }
+
+            fn compatible(ty: &<sqlx::Sqlite as sqlx::Database>::TypeInfo) -> bool {
+                <String as sqlx::Type<sqlx::Sqlite>>::compatible(ty)
+            }
+        }
+
         #[serde_as]
         #[derive(Deserialize, FromRow)]
         struct Row {
-            #[sqlx(json)]
             hash: B3Hash,
             #[serde_as(as = "JsonString")]
             #[sqlx(json)]

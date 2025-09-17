@@ -3,12 +3,12 @@ use std::fmt::Write as _;
 
 fn generate_statement(out: &mut String, table: &str, column: &str) -> std::fmt::Result {
     writeln!(out, "SELECT ")?;
-    writeln!(out, "  {column}->>'hash' AS hash")?;
+    writeln!(out, "  {column}->>'hash' AS hash,")?;
     writeln!(out, "  {column}->>'pointer' AS storage")?;
     writeln!(out, "FROM {table}")?;
     writeln!(
         out,
-        "WHERE {column} IST NOT NULL AND {column}->>'hash' IS NOT NULL"
+        "WHERE {column} IS NOT NULL AND {column}->>'hash' IS NOT NULL"
     )?;
     Ok(())
 }
