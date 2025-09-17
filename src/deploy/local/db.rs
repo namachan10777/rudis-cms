@@ -1,7 +1,9 @@
+use std::str::FromStr;
+
 use crate::job;
 
-pub struct LocalSqlite {
-    pub pool: sqlx::SqlitePool,
+pub struct LocalDatabase {
+    pool: sqlx::SqlitePool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -10,7 +12,29 @@ pub enum Error {
     Sqlite(sqlx::Error),
 }
 
-impl job::storage::sqlite::Client for LocalSqlite {
+pub struct Client {
+    pool: sqlx::SqlitePool,
+}
+
+impl LocalDatabase {
+    pub async fn open(url: &str) -> Result<Self, sqlx::Error> {
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)?;
+        let pool = sqlx::sqlite::SqlitePool::connect_with(options).await?;
+        Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> &sqlx::SqlitePool {
+        &self.pool
+    }
+
+    pub fn client(&self) -> Client {
+        Client {
+            pool: self.pool.clone(),
+        }
+    }
+}
+
+impl job::storage::sqlite::Client for Client {
     type Error = Error;
 
     async fn query<

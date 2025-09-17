@@ -1,7 +1,5 @@
-use std::str::FromStr;
-
 use blake3::Hasher;
-use image::EncodableLayout;
+
 use indexmap::IndexMap;
 use sqlx::prelude::FromRow;
 
@@ -42,20 +40,17 @@ async fn test() {
         all_uploads.extend(uploads);
     }
 
-    let options = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:").unwrap();
-    let pool = sqlx::sqlite::SqlitePool::connect_with(options)
+    let db = deploy::local::db::LocalDatabase::open("sqlite::memory:")
         .await
         .unwrap();
-
-    let d1 = deploy::local::d1::LocalSqlite { pool: pool.clone() };
-    let kv = deploy::local::kv::Client::default();
-    let r2 = deploy::local::r2::Client::default();
-    let asset = deploy::local::asset::Client::default();
+    let storage = deploy::local::storage::LocalStorage::open("sqlite::memory:")
+        .await
+        .unwrap();
     let executor = job::JobExecutor {
-        d1: d1,
-        kv: &kv,
-        r2: &r2,
-        asset: &asset,
+        d1: db.client(),
+        kv: storage.kv_client(),
+        r2: storage.r2_client(),
+        asset: storage.asset_client(),
     };
     executor
         .batch(&schema, &all_tables, all_uploads, false)
@@ -66,7 +61,7 @@ async fn test() {
         id: String,
     }
     let mail_rows = sqlx::query_as::<_, MailRow>("SELECT * from mail ORDER BY id ASC")
-        .fetch_all(&pool)
+        .fetch_all(db.pool())
         .await
         .unwrap();
     assert_eq!(
@@ -90,7 +85,7 @@ async fn test() {
     }
     let attchment_rows =
         sqlx::query_as::<_, AttachmentRow>("SELECT * from attachments ORDER BY id ASC")
-            .fetch_all(&pool)
+            .fetch_all(db.pool())
             .await
             .unwrap();
     assert_eq!(
@@ -147,26 +142,58 @@ async fn test() {
         ]
     );
 
-    let (caesar_bytes, caesar_content_type) = r2
-        .get("assets", "mail/attachments/gaius/caesar")
-        .await
-        .unwrap();
-    assert_eq!(caesar_bytes.as_bytes(), "caesar\n".as_bytes());
-    assert_eq!(&caesar_content_type, "text/plain");
+    #[derive(FromRow, Debug, PartialEq, Eq)]
+    pub struct R2Row {
+        body: Vec<u8>,
+        content_type: String,
+    }
 
-    let (fimbria_bytes, fimbria_content_type) = r2
-        .get("assets", "mail/attachments/flavius/fimbria")
-        .await
-        .unwrap();
-    assert_eq!(fimbria_bytes.as_bytes(), "fimbria\n".as_bytes());
-    assert_eq!(&fimbria_content_type, "text/plain");
+    assert_eq!(
+        sqlx::query_as::<_, R2Row>("SELECT * FROM r2 WHERE bucket = ? AND key = ?")
+            .bind("assets")
+            .bind("mail/attachments/gaius/caesar")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap(),
+        R2Row {
+            body: "caesar\n".as_bytes().to_vec(),
+            content_type: "text/plain".into()
+        }
+    );
 
-    let (galerius_bytes, galerius_content_type) = r2
-        .get("assets", "mail/attachments/flavius/galerius")
-        .await
-        .unwrap();
-    assert_eq!(galerius_bytes.as_bytes(), "galerius\n".as_bytes());
-    assert_eq!(&galerius_content_type, "text/plain");
+    assert_eq!(
+        sqlx::query_as::<_, R2Row>("SELECT * FROM r2 WHERE bucket = ? AND key = ?")
+            .bind("assets")
+            .bind("mail/attachments/flavius/fimbria")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap(),
+        R2Row {
+            body: "fimbria\n".as_bytes().to_vec(),
+            content_type: "text/plain".into()
+        }
+    );
+
+    assert_eq!(
+        sqlx::query_as::<_, R2Row>("SELECT * FROM r2 WHERE bucket = ? AND key = ?")
+            .bind("assets")
+            .bind("mail/attachments/flavius/galerius")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap(),
+        R2Row {
+            body: "galerius\n".as_bytes().to_vec(),
+            content_type: "text/plain".into()
+        }
+    );
+
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM r2")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap(),
+        3
+    );
 
     let mut all_tables = IndexMap::<String, Vec<_>>::new();
     let mut all_uploads = Vec::new();
@@ -193,7 +220,7 @@ async fn test() {
         .await
         .unwrap();
     let mail_rows = sqlx::query_as::<_, MailRow>("SELECT * from mail ORDER BY id ASC")
-        .fetch_all(&pool)
+        .fetch_all(db.pool())
         .await
         .unwrap();
     assert_eq!(
@@ -207,7 +234,7 @@ async fn test() {
     );
     let attchment_rows =
         sqlx::query_as::<_, AttachmentRow>("SELECT * from attachments ORDER BY id ASC")
-            .fetch_all(&pool)
+            .fetch_all(db.pool())
             .await
             .unwrap();
     assert_eq!(
@@ -230,22 +257,24 @@ async fn test() {
         },]
     );
 
-    let (caesar_bytes, caesar_content_type) = r2
-        .get("assets", "mail/attachments/gaius/caesar")
-        .await
-        .unwrap();
-    assert_eq!(caesar_bytes.as_bytes(), "caesar\n".as_bytes());
-    assert_eq!(&caesar_content_type, "text/plain");
-
-    assert!(
-        r2.get("assets", "mail/attachments/flavius/fimbria")
+    assert_eq!(
+        sqlx::query_as::<_, R2Row>("SELECT * FROM r2 WHERE bucket = ? AND key = ?")
+            .bind("assets")
+            .bind("mail/attachments/gaius/caesar")
+            .fetch_one(storage.pool())
             .await
-            .is_none()
+            .unwrap(),
+        R2Row {
+            body: "caesar\n".as_bytes().to_vec(),
+            content_type: "text/plain".into()
+        }
     );
 
-    assert!(
-        r2.get("assets", "mail/attachments/flavius/galerius")
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM r2")
+            .fetch_one(storage.pool())
             .await
-            .is_none()
+            .unwrap(),
+        1
     );
 }
