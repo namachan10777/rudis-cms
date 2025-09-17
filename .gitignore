@@ -5,3 +5,5 @@
 /rudis-example-schema
 /node_modules
 *.db
+*.db-shm
+*.db-wal

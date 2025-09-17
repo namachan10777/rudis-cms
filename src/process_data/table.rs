@@ -760,7 +760,13 @@ async fn process_row_impl(
             &storage,
             None,
         );
-        fields.insert(name, ColumnValue::Markdown(reference));
+        fields.insert(name, ColumnValue::Markdown(reference.clone()));
+        total_uploads.push(Upload {
+            data: StorageContent::Text(content),
+            hash: reference.hash,
+            pointer: reference.pointer,
+            content_type: reference.content_type,
+        });
     }
     Ok(RowNode {
         id,

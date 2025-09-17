@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{json::JsonString, serde_as};
 use sqlx::FromRow;
-use tracing::error;
+use tracing::{debug, error};
 
 pub mod sql;
 pub mod storage;
@@ -279,6 +279,11 @@ impl<
                 .push(pair.build().unwrap());
         }
         for (namespace, pairs) in namespaces {
+            debug!(
+                namespace,
+                count = pairs.len(),
+                "write multiple pairs into kv"
+            );
             self.kv.write_multiple(&namespace, &pairs).await?;
         }
         Ok(())
