@@ -48,15 +48,15 @@ pub(super) enum ImageResolved {
     Reference(ObjectReference<ImageReferenceMeta>),
 }
 
-pub trait ImageUploadLocator {
-    fn to_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta>;
+pub trait ImageUploadRegisterer {
+    fn register(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta>;
 }
 
 impl<'a> ImageSrcExtractor<'a> {
     pub(super) async fn into_resolver(
         self,
         document_path: Option<&Path>,
-        image_locator: &impl ImageUploadLocator,
+        image_locator: &impl ImageUploadRegisterer,
         config: Config,
     ) -> Result<ImageResolver, ErrorDetail> {
         let tasks = self.src_set.into_iter().map(|src| async move {
@@ -74,7 +74,7 @@ impl<'a> ImageSrcExtractor<'a> {
                 }
                 image => {
                     let hash = image.hash;
-                    let reference = image_locator.to_location(image);
+                    let reference = image_locator.register(image);
                     Ok((src.to_owned(), (ImageResolved::Reference(reference), hash)))
                 }
             }

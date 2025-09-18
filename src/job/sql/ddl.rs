@@ -47,9 +47,9 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
             };
             write!(out, "  {name} {type_name}")?;
             if field.is_required_field() {
-                writeln!(out, ",")?;
-            } else {
                 writeln!(out, " NOT NULL,")?;
+            } else {
+                writeln!(out, ",")?;
             }
         }
         if let Some(parent) = &schema.parent {

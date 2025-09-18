@@ -6,6 +6,7 @@ use std::{
 use base64::Engine;
 use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
+use valuable::Valuable;
 
 use crate::config;
 
@@ -13,10 +14,10 @@ pub mod markdown;
 pub mod object_loader;
 pub mod table;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Valuable)]
 pub struct CompoundIdPrefix(Vec<(String, String)>);
 
-#[derive(Clone)]
+#[derive(Clone, Valuable)]
 pub struct CompoundId {
     prefix: CompoundIdPrefix,
     id: String,

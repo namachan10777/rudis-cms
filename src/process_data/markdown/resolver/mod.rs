@@ -2,7 +2,7 @@ use indexmap::indexmap;
 use std::path::Path;
 
 use crate::process_data::markdown::{
-    Node,
+    Alert, Node,
     compress::{Codeblock, FootnoteReference, Heading, Image, Keep},
     parser::{KeepRaw, RichTextDocumentRaw},
     resolver::image::ImageResolved,
@@ -13,7 +13,7 @@ mod codeblock;
 mod footnote;
 mod image;
 mod link_card;
-pub use image::ImageUploadLocator;
+pub use image::ImageUploadRegisterer;
 
 pub struct Footnote {
     pub id: String,
@@ -65,7 +65,7 @@ impl<'r> Resolvers<'r> {
                 keep: KeepRaw::Alert { kind },
                 children,
             } => Node::Lazy {
-                keep: Keep::Alert(kind),
+                keep: Keep::Alert(Alert { kind }),
                 children: children
                     .into_iter()
                     .map(|node| self.rewrite(node))
@@ -210,7 +210,7 @@ impl RichTextDocument {
     pub(crate) async fn resolve(
         document: RichTextDocumentRaw,
         document_path: Option<&Path>,
-        uploader: &impl image::ImageUploadLocator,
+        uploader: &impl image::ImageUploadRegisterer,
         embed_svg_threshold: usize,
     ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
         let mut footnote_resolver = footnote::FootnoteResolver::new(&document.footnotes);

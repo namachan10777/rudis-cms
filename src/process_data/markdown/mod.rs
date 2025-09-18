@@ -21,6 +21,11 @@ pub enum AlertKind {
     Tip,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Valuable)]
+pub struct Alert {
+    kind: AlertKind,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Valuable)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum LinkType {

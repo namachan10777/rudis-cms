@@ -5,7 +5,7 @@ use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
 
 use super::super::StoragePointer;
-use super::{AlertKind, AttrValue, Name, resolver, text_content};
+use super::{Alert, AttrValue, Name, resolver, text_content};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeadingLevel {
@@ -153,7 +153,7 @@ pub enum Keep {
     Image(Image),
     LinkCard(Box<LinkCard>),
     Codeblock(Codeblock),
-    Alert(AlertKind),
+    Alert(Alert),
     FootnoteReference(FootnoteReference),
 }
 

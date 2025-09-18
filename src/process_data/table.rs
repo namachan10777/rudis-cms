@@ -10,6 +10,8 @@ use serde::{
     Serialize,
     ser::{SerializeMap as _, SerializeSeq},
 };
+use tracing::{debug, trace};
+use valuable::Valuable;
 
 use crate::{
     Error, ErrorContext, ErrorDetail, config,
@@ -477,8 +479,8 @@ struct MarkdownImageUploader<'a> {
     id: &'a CompoundId,
 }
 
-impl<'a> markdown::resolver::ImageUploadLocator for MarkdownImageUploader<'a> {
-    fn to_location(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta> {
+impl<'a> markdown::resolver::ImageUploadRegisterer for MarkdownImageUploader<'a> {
+    fn register(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta> {
         let (width, height) = image.body.dimensions();
         let meta = ImageReferenceMeta {
             width,
@@ -486,14 +488,17 @@ impl<'a> markdown::resolver::ImageUploadLocator for MarkdownImageUploader<'a> {
             derived_id: image.derived_id.clone(),
             blurhash: None, // TODO
         };
-        ObjectReference::build(
+        let reference = ObjectReference::build(
             StorageContentRef::Bytes(&image.original),
             self.id,
             image.content_type,
             meta,
             self.storage,
             Some(image.derived_id),
-        )
+        );
+        self.queue
+            .push((reference.clone(), image.original.into_vec()));
+        reference
     }
 }
 
@@ -534,6 +539,12 @@ async fn process_markdown_field(
         hasher.update(hash.as_bytes());
     });
 
+    trace!(
+        table = image.table,
+        prefix = ctx.compound_id_prefix.as_value(),
+        id = id.as_value(),
+        "enter markdown image table"
+    );
     let ctx = ctx.clone().nest(&image.table, id.clone())?;
 
     let value = FieldValue::Markdown {
@@ -542,19 +553,26 @@ async fn process_markdown_field(
         image_rows: image_uploader
             .queue
             .into_iter()
-            .map(|(reference, data)| RowNode {
-                id: ctx.id(&reference.meta.derived_id),
-                hash: reference.hash,
-                fields: indexmap! {
-                    "image".to_string() => ColumnValue::Image(reference.clone())
-                },
-                records: Default::default(),
-                uploads: vec![Upload {
-                    data: StorageContent::Bytes(data),
+            .map(|(reference, data)| {
+                debug!(
+                    markdown_id = id.as_value(),
+                    id = ctx.id(&reference.meta.derived_id).as_value(),
+                    "markdown image"
+                );
+                RowNode {
+                    id: ctx.id(&reference.meta.derived_id),
                     hash: reference.hash,
-                    pointer: reference.pointer,
-                    content_type: reference.content_type,
-                }],
+                    fields: indexmap! {
+                        "image".to_string() => ColumnValue::Image(reference.clone())
+                    },
+                    records: Default::default(),
+                    uploads: vec![Upload {
+                        data: StorageContent::Bytes(data),
+                        hash: reference.hash,
+                        pointer: reference.pointer,
+                        content_type: reference.content_type,
+                    }],
+                }
             })
             .collect(),
         storage: storage.clone(),
@@ -749,7 +767,9 @@ async fn process_row_impl(
     for (name, (document, storage)) in markdowns.into_iter() {
         let content = serde_json::to_string(&serde_json::json!({
             "frontmatter": &frontmatter,
-            "body": document,
+            "root": document.root,
+            "footnotes": document.footnotes,
+            "sections": document.sections
         }))
         .unwrap();
         let reference = ObjectReference::build(

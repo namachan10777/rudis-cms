@@ -37,3 +37,12 @@ jobs:
 
       - name: Build check
         run: cargo build --all-features
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Generate schema
+        run: sh ./integration-test/prepare.sh
+        
+      - name: Integration test
+        run: bun test

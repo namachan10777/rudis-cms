@@ -1,4 +1,4 @@
-glob: "**/*.md"
+glob: "posts/*.md"
 name: posts
 table: posts
 database_id: xxx
@@ -23,17 +23,43 @@ schema:
     config: {}
     storage:
       type: kv
-      namespace: kv
+      namespace: post
   og_image:
     type: image
     storage:
       type: r2
       bucket: namachan10777dev
       prefix: post/og
+  publish:
+    type: boolean
   published:
     type: datetime
     index: true
     required: true
+  commentable:
+    type: boolean
+  comments:
+    type: records
+    inherit_ids: [post_id]
+    table: comments
+    schema:
+      comment_id:
+        type: id
+      comment:
+        type: markdown
+        image:
+          table: comment_images
+          inherit_ids:
+            - post_id
+            - comment_id
+          embed_svg_threshold: 8192
+          storage:
+            type: r2
+            bucket: namachan10777dev
+            prefix: comment/images
+        config: {}
+        storage:
+          type: inline
   tags:
     type: records
     inherit_ids: [post_id]

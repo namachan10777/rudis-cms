@@ -88,7 +88,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                 } => {
                     if print {
                         let schema = schema::TableSchema::compile(&collection)?;
-                        let files = rudis_cms::typescript::file_map(&schema, name, valibot);
+                        let files = rudis_cms::typescript::file_map(&schema, valibot);
                         for (_, content) in &files {
                             println!("// {name}");
                             print!("{content}");
@@ -96,8 +96,20 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     }
                     if let Some(basedir) = save {
                         tokio::fs::create_dir_all(basedir).await?;
+                        tokio::fs::write(
+                            basedir.join("rudis.ts"),
+                            include_str!("typescript/rudis.ts"),
+                        )
+                        .await?;
+                        if valibot {
+                            tokio::fs::write(
+                                basedir.join("rudis-valibot.ts"),
+                                include_str!("typescript/rudis-valibot.ts"),
+                            )
+                            .await?;
+                        }
                         let schema = schema::TableSchema::compile(&collection)?;
-                        let files = rudis_cms::typescript::file_map(&schema, name, valibot);
+                        let files = rudis_cms::typescript::file_map(&schema, valibot);
                         tokio::fs::create_dir_all(basedir.join(name)).await?;
                         for (filename, content) in &files {
                             let path = basedir.join(name).join(filename);

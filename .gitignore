@@ -4,6 +4,7 @@
 .blindcms
 /rudis-example-schema
 /node_modules
-*.db
-*.db-shm
-*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/generated
