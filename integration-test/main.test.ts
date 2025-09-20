@@ -20,9 +20,7 @@ let storage: sqlite.Database | null = null;
 beforeAll(async () => {
   Bun.spawnSync({
     cmd: [
-      "cargo",
-      "run",
-      "--",
+      "./target/debug/rudis-cms",
       "--config",
       "integration-test/config.yaml",
       "dump",
