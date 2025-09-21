@@ -42,4 +42,8 @@ describe("check post table sanity", () => {
     const rows = database!.query("SELECT * FROM posts;").all();
     v.parse(v.array(post.table), rows);
   });
+  test("count-check", () => {
+    const rows = database!.query("SELECT * FROM posts;").all();
+    v.parse(v.array(post.table), rows);
+  });
 });

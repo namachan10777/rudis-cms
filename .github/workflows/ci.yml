@@ -46,6 +46,6 @@ jobs:
 
       - name: Generate schema
         run: sh ./integration-test/prepare.sh
-        
+
       - name: Integration test
         run: bun test
