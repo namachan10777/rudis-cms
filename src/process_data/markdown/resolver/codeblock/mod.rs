@@ -7,7 +7,7 @@ use syntect::parsing::{BasicScopeStackOp, SyntaxDefinition, SyntaxSet};
 use crate::process_data::markdown::Node;
 
 fn load_syntax_set() -> anyhow::Result<SyntaxSet> {
-    syntect::dumps::from_dump_file(".blindcms/syntect.packdump").map_err(Into::into)
+    syntect::dumps::from_dump_file(".rudis/syntect.packdump").map_err(Into::into)
 }
 
 fn create_syntax_set() -> SyntaxSet {
@@ -24,8 +24,8 @@ fn create_syntax_set() -> SyntaxSet {
             builder.add(ts_syntax);
             builder.add(ts_react_syntax);
             let ss = builder.build();
-            let _ = std::fs::create_dir_all(".blindcms");
-            let _ = syntect::dumps::dump_to_file(&ss, ".blindcms/syntect.packdump");
+            let _ = std::fs::create_dir_all(".rudis");
+            let _ = syntect::dumps::dump_to_file(&ss, ".rudis/syntect.packdump");
             ss
         }
     }
