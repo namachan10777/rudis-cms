@@ -18,7 +18,8 @@ let database: sqlite.Database | null = null;
 let storage: sqlite.Database | null = null;
 
 beforeAll(async () => {
-  Bun.spawnSync({
+  await createDatabases();
+  const log = Bun.spawnSync({
     cmd: [
       "./target/debug/rudis-cms",
       "--config",
@@ -32,7 +33,8 @@ beforeAll(async () => {
     env: {
       RUST_LOG: "rudis_cms=Trace",
     },
-  });
+  }).stdout;
+  console.log(log.toString("utf-8"));
   database = new sqlite.Database("./integration-test/database.sqlite");
   storage = new sqlite.Database("./integration-test/storage.sqlite");
 });
