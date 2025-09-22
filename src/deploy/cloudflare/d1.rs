@@ -29,7 +29,7 @@ pub struct Client {
 
 #[derive(Serialize)]
 struct Request<'a, P> {
-    query: &'a str,
+    sql: &'a str,
     params: &'a [&'a P],
 }
 
@@ -104,7 +104,7 @@ impl job::storage::sqlite::Client for Client {
             .post(self.url.clone())
             .bearer_auth(&self.token)
             .json(&Request {
-                query: statement,
+                sql: statement,
                 params,
             })
             .send()
