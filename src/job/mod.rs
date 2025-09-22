@@ -177,6 +177,23 @@ fn multiplex_upload(
     (r2, kv, asset)
 }
 
+struct Ignore;
+
+impl<'de> Deserialize<'de> for Ignore {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self)
+    }
+}
+
+impl<'r, R: sqlx::Row> FromRow<'r, R> for Ignore {
+    fn from_row(_: &'r R) -> Result<Self, sqlx::Error> {
+        Ok(Self)
+    }
+}
+
 fn multiplex_delete(
     disappeards: impl Iterator<Item = StoragePointer>,
 ) -> (Vec<R2Delete>, Vec<KvDelete>, Vec<AssetDelete>) {
@@ -342,20 +359,22 @@ impl<
         let param = serde_json::to_string(tables).expect("tables must be encodable");
         for (table, schema) in &schema.tables {
             self.d1
-                .query::<(), _>(&sql::upsert(table, schema), &[&param.as_str()])
+                .query::<Ignore, _>(&sql::upsert(table, schema), &[&param.as_str()])
                 .await?;
         }
 
         for (table, schema) in &schema.tables {
             self.d1
-                .query::<(), _>(&sql::cleanup(table, schema), &[&param.as_str()])
+                .query::<Ignore, _>(&sql::cleanup(table, schema), &[&param.as_str()])
                 .await?;
         }
         Ok(())
     }
 
     async fn create_tables_if_not_exist(&self, schema: &CollectionSchema) -> Result<(), D::Error> {
-        self.d1.query::<(), &str>(&sql::ddl(schema), &[]).await?;
+        self.d1
+            .query::<Ignore, &str>(&sql::ddl(schema), &[])
+            .await?;
         Ok(())
     }
 
@@ -444,7 +463,7 @@ impl<
         A::Error: std::error::Error,
     {
         self.d1
-            .query::<(), &str>(&sql::drop_all_tables(schema), &[])
+            .query::<Ignore, &str>(&sql::drop_all_tables(schema), &[])
             .await
             .map_err(JobError::Database)
             .inspect_err(|error| error!(%error, "failed to synchronize database"))?;

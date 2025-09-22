@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 use url::Url;
 use valuable::Valuable;
 
-use crate::job;
+use crate::{deploy::cloudflare::Response, job};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -19,6 +19,8 @@ pub enum Error {
         errors: Vec<super::ResponseInfo>,
         messages: Vec<super::ResponseInfo>,
     },
+    #[error("Parse JSON error: {0}")]
+    ParseJson(serde_json::Error),
 }
 
 pub struct Client {
@@ -51,14 +53,14 @@ enum Region {
 
 #[derive(Deserialize, Valuable)]
 struct QueryResultMetaTimings {
-    sql_duration_ms: Option<u64>,
+    sql_duration_ms: Option<f64>,
 }
 
-#[derive(Deserialize, Valuable)]
+#[derive(Deserialize, Valuable, Default)]
 struct QueryResultMeta {
     changed_db: Option<bool>,
-    changes: Option<bool>,
-    duration: Option<u64>,
+    changes: Option<u64>,
+    duration: Option<f64>,
     last_row_id: Option<u64>,
     rows_read: Option<u64>,
     rows_written: Option<u64>,
@@ -70,7 +72,9 @@ struct QueryResultMeta {
 
 #[derive(Deserialize)]
 struct QueryResult<R> {
+    #[serde(default)]
     meta: QueryResultMeta,
+    #[serde(default = "Vec::new")]
     results: Vec<R>,
 }
 
@@ -99,7 +103,7 @@ impl job::storage::sqlite::Client for Client {
         statement: &'q str,
         params: &'q [&'q P],
     ) -> Result<Vec<R>, Self::Error> {
-        let mut response = self
+        let response = self
             .client
             .post(self.url.clone())
             .bearer_auth(&self.token)
@@ -110,9 +114,13 @@ impl job::storage::sqlite::Client for Client {
             .send()
             .await
             .map_err(Error::Transport)?
-            .json::<super::Response<Vec<QueryResult<R>>>>()
+            .text()
             .await
             .map_err(Error::Transport)?;
+        trace!(text = response, "D1 response");
+
+        let mut response = serde_json::from_str::<Response<Vec<QueryResult<R>>>>(&response)
+            .map_err(Error::ParseJson)?;
         if !response.success {
             warn!(
                 errors = response.errors.as_value(),
