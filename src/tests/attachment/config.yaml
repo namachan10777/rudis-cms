@@ -1,6 +1,6 @@
-glob: "mail/**/*.yaml"
-table: mail
-name: mail
+glob: "posts/**/*.yaml"
+table: posts
+name: posts
 database_id: deadbeef
 syntax:
   type: yaml
@@ -9,7 +9,7 @@ schema:
     type: id
   attachments:
     type: records
-    inherit_ids: [mail_id]
+    inherit_ids: [post_id]
     table: attachments
     schema:
       id:
@@ -19,4 +19,4 @@ schema:
         storage:
           type: r2
           bucket: assets
-          prefix: mail/attachments
+          prefix: posts/attachments

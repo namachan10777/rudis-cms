@@ -1,6 +1,6 @@
 [package]
 name = "rudis-cms"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]
@@ -54,6 +54,6 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls-webpki-roots"], de
 html-escape = "0.2"
 stringcase = "0.4"
 base64 = "0.22"
-serde_with = { version = "3.14.0", features = ["json"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["derive", "json", "runtime-tokio", "sqlite"] }
-bytes = "1.10.1"
+serde_with = { version = "3", features = ["json"] }
+sqlx = { version = "0.8", default-features = false, features = ["derive", "json", "runtime-tokio", "sqlite"] }
+bytes = "1"

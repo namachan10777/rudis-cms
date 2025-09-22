@@ -345,9 +345,12 @@ impl<
                 .query::<(), _>(&sql::upsert(table, schema), &[&param.as_str()])
                 .await?;
         }
-        self.d1
-            .query::<(), _>(&sql::cleanup(schema), &[&param.as_str()])
-            .await?;
+
+        for (table, schema) in &schema.tables {
+            self.d1
+                .query::<(), _>(&sql::cleanup(table, schema), &[&param.as_str()])
+                .await?;
+        }
         Ok(())
     }
 

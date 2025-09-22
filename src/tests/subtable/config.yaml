@@ -1,0 +1,16 @@
+glob: "posts/**/*.yaml"
+table: posts
+name: posts
+database_id: deadbeef
+syntax:
+  type: yaml
+schema:
+  id:
+    type: id
+  tags:
+    type: records
+    inherit_ids: [post_id]
+    table: tags
+    schema:
+      tag:
+        type: id

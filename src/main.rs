@@ -74,7 +74,10 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
                     }
                     if cleanup {
                         println!("-- {name}: cleanup.sql");
-                        println!("{}", job::sql::cleanup(&schema));
+                        for (table, schema) in &schema.tables {
+                            println!("-- {name}:{table}: cleanup.sql");
+                            println!("{}", job::sql::cleanup(table, schema));
+                        }
                     }
                     if fetch_objects {
                         println!("-- {name}: fetch_object.sql");

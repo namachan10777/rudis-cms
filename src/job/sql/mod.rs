@@ -6,9 +6,9 @@ mod drop_all_table;
 mod fetch_objects;
 mod upsert;
 
-pub fn cleanup(schema: &CollectionSchema) -> String {
+pub fn cleanup(table: &str, schema: &TableSchema) -> String {
     let mut out = String::new();
-    cleanup::generate(&mut out, schema).unwrap();
+    cleanup::generate(&mut out, table, schema).unwrap();
     out
 }
 
