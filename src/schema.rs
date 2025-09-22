@@ -277,7 +277,7 @@ impl FieldType {
             Self::Integer { required, .. } => *required,
             Self::String { required, .. } => *required,
             Self::Markdown { required, .. } => *required,
-            Self::Id => false,
+            Self::Id => true,
             Self::Real { required, .. } => *required,
             Self::Records { required, .. } => *required,
         }
