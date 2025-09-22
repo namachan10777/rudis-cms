@@ -47,7 +47,7 @@ async fn load_files<P: AsRef<Path>>(
         let (table, uploads) = process_data::table::push_rows_from_document(
             schema.tables.keys().next().unwrap(),
             hasher.clone(),
-            &schema,
+            schema,
             syntax,
             path,
         )
