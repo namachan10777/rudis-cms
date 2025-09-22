@@ -45,6 +45,7 @@ enum SubCommand {
 }
 
 #[derive(clap::Parser)]
+#[command(version, about, long_about = None)]
 struct Opts {
     #[clap(short, long)]
     config: PathBuf,
