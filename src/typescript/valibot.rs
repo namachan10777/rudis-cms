@@ -129,7 +129,10 @@ fn generate_table_validator_field(
             write!(out, "v.number()")?;
         }
         FieldType::Date { .. } => {
-            write!(out, "v.pipe(v.string(), v.isoDate())")?;
+            write!(
+                out,
+                "v.pipe(v.string(), v.isoDate(), v.transform((date) => new Date(date)))"
+            )?;
         }
         FieldType::Datetime { .. } => {
             write!(
