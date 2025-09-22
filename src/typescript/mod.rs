@@ -191,14 +191,14 @@ fn generate_sub_table_imports<'i, 'o>(
 ) -> std::fmt::Result {
     fields.try_for_each(|field| {
         if let FieldType::Records { table, .. } = field {
-            writeln!(out, r#"import * as {table} from "./{table}.ts""#)?;
+            writeln!(out, r#"import * as {table} from "./{table}""#)?;
         }
         Ok(())
     })
 }
 
 pub fn generate_type(out: &mut String, schema: &TableSchema) -> std::fmt::Result {
-    writeln!(out, r#"import * as rudis from "../rudis.ts""#)?;
+    writeln!(out, r#"import * as rudis from "../rudis""#)?;
     generate_sub_table_imports(out, schema.fields.values())?;
     schema
         .fields
@@ -215,13 +215,13 @@ pub fn file_map(schema: &CollectionSchema, enable_valibot: bool) -> IndexMap<Pat
     for (table, schema) in &schema.tables {
         let mut contents = String::new();
         generate_type(&mut contents, schema).unwrap();
-        map.insert(PathBuf::from(format!("{table}.ts")), contents);
+        map.insert(PathBuf::from(table.to_string()), contents);
     }
     if enable_valibot {
         for (table, schema) in &schema.tables {
             let mut contents = String::new();
             valibot::generate_type(&mut contents, schema).unwrap();
-            map.insert(PathBuf::from(format!("{table}-valibot.ts")), contents);
+            map.insert(PathBuf::from(format!("{table}-valibot")), contents);
         }
     }
     map
