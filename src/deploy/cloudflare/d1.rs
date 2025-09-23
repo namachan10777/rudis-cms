@@ -123,6 +123,7 @@ impl job::storage::sqlite::Client for Client {
             .map_err(Error::ParseJson)?;
         if !response.success {
             warn!(
+                statement,
                 errors = response.errors.as_value(),
                 messages = response.messages.as_value(),
                 "failed to execute query"
@@ -134,6 +135,7 @@ impl job::storage::sqlite::Client for Client {
         }
         let Some(result) = response.result.pop() else {
             warn!(
+                statement,
                 messages = response.messages.as_value(),
                 errors = response.errors.as_value(),
                 "empty query result"
@@ -144,6 +146,7 @@ impl job::storage::sqlite::Client for Client {
             });
         };
         debug!(
+            statement,
             messages = response.messages.as_value(),
             meta = result.meta.as_value(),
             "query succeeded"
