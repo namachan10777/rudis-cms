@@ -201,7 +201,7 @@ struct Stats {
 pub struct FancyReporter {
     multi: indicatif::MultiProgress,
     phase_bar: indicatif::ProgressBar,
-    entries: std::sync::RwLock<std::collections::HashMap<String, indicatif::ProgressBar>>,
+    entries: std::sync::RwLock<std::collections::HashMap<String, Option<indicatif::ProgressBar>>>,
     main_progress: std::sync::RwLock<Option<indicatif::ProgressBar>>,
     stats: std::sync::RwLock<Stats>,
 }
@@ -249,16 +249,27 @@ impl FancyReporter {
         eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
-    fn status_to_string(status: &EntryStatus) -> String {
+    fn status_emoji(status: &EntryStatus) -> &'static str {
         match status {
-            EntryStatus::Pending => "⏳ pending".to_string(),
-            EntryStatus::Processing => "⚙️  processing".to_string(),
+            EntryStatus::Pending => "⏳",
+            EntryStatus::Processing => "⚙️ ",
+            EntryStatus::ProcessingImages { .. } => "🖼️ ",
+            EntryStatus::Uploading => "☁️ ",
+            EntryStatus::Done => "✅",
+            EntryStatus::Failed(_) => "❌",
+        }
+    }
+
+    fn status_detail(status: &EntryStatus) -> String {
+        match status {
+            EntryStatus::Pending => "pending".to_string(),
+            EntryStatus::Processing => "processing".to_string(),
             EntryStatus::ProcessingImages { current, total } => {
-                format!("🖼️  images ({current}/{total})")
+                format!("images ({current}/{total})")
             }
-            EntryStatus::Uploading => "☁️  uploading".to_string(),
-            EntryStatus::Done => "✅ done".to_string(),
-            EntryStatus::Failed(e) => format!("❌ {e}"),
+            EntryStatus::Uploading => "uploading".to_string(),
+            EntryStatus::Done => "done".to_string(),
+            EntryStatus::Failed(e) => e.clone(),
         }
     }
 }
@@ -309,39 +320,56 @@ impl ProgressReporter for FancyReporter {
         );
         *self.main_progress.write().unwrap() = Some(main_pb);
 
-        // Create per-entry progress bars (show max 10 at a time)
-        for entry in entries.into_iter().take(10) {
-            let pb = self.multi.add(indicatif::ProgressBar::new_spinner());
-            pb.set_style(
-                indicatif::ProgressStyle::default_spinner()
-                    .template("   {spinner:.dim} {msg}")
-                    .unwrap(),
-            );
-            pb.set_message(format!("{entry}: ⏳ pending"));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            map.insert(entry, pb);
+        // Store all entry names, but don't create progress bars yet
+        // Progress bars are created on-demand when entries start processing
+        for entry in entries {
+            map.insert(entry, None);
         }
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
-        let map = self.entries.read().unwrap();
-        if let Some(pb) = map.get(entry) {
-            let status_str = Self::status_to_string(&status);
-            pb.set_message(format!("{entry}: {status_str}"));
+        let mut map = self.entries.write().unwrap();
 
-            if matches!(status, EntryStatus::Done | EntryStatus::Failed(_)) {
-                pb.finish();
-                if let Some(ref main_pb) = *self.main_progress.read().unwrap() {
-                    main_pb.inc(1);
-                }
+        // If done or failed, remove the progress bar (hide completed entries)
+        if matches!(status, EntryStatus::Done | EntryStatus::Failed(_)) {
+            if let Some(Some(pb)) = map.get(entry) {
+                pb.finish_and_clear();
+            }
+            map.remove(entry);
 
-                // Update stats
-                let mut stats = self.stats.write().unwrap();
-                match status {
-                    EntryStatus::Done => stats.successful_entries += 1,
-                    EntryStatus::Failed(_) => stats.failed_entries += 1,
-                    _ => {}
-                }
+            if let Some(ref main_pb) = *self.main_progress.read().unwrap() {
+                main_pb.inc(1);
+            }
+
+            // Update stats
+            let mut stats = self.stats.write().unwrap();
+            match status {
+                EntryStatus::Done => stats.successful_entries += 1,
+                EntryStatus::Failed(_) => stats.failed_entries += 1,
+                _ => {}
+            }
+            return;
+        }
+
+        // For in-progress states, create or update progress bar
+        if let Some(entry_slot) = map.get_mut(entry) {
+            let emoji = Self::status_emoji(&status);
+            let detail = Self::status_detail(&status);
+
+            if let Some(pb) = entry_slot {
+                // Update existing progress bar
+                pb.set_message(format!("{emoji} {entry}: {detail}"));
+            } else {
+                // Create new progress bar for this entry
+                let pb = self.multi.add(indicatif::ProgressBar::new_spinner());
+                pb.set_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .template("   {msg}")
+                        .unwrap(),
+                );
+                pb.set_message(format!("{emoji} {entry}: {detail}"));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                *entry_slot = Some(pb);
             }
         }
     }
@@ -367,10 +395,12 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn finish(&self) {
-        // Clear entry bars
+        // Clear any remaining entry bars
         let map = self.entries.read().unwrap();
-        for pb in map.values() {
-            pb.finish_and_clear();
+        for entry_slot in map.values() {
+            if let Some(pb) = entry_slot {
+                pb.finish_and_clear();
+            }
         }
 
         // Finish main progress
