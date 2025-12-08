@@ -57,3 +57,5 @@ base64 = "0.22"
 serde_with = { version = "3", features = ["json"] }
 sqlx = { version = "0.8", default-features = false, features = ["derive", "json", "runtime-tokio", "sqlite"] }
 bytes = "1"
+indicatif = "0.18.3"
+console = "0.16.1"
