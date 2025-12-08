@@ -133,9 +133,9 @@ impl SimpleReporter {
         let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
 
         eprintln!();
-        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        eprintln!("📊 Summary");
-        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("========================================");
+        eprintln!("Summary");
+        eprintln!("========================================");
 
         // Print tree of entries and their objects
         let mut entries: Vec<_> = entry_objects.iter().collect();
@@ -143,36 +143,28 @@ impl SimpleReporter {
 
         for (i, (entry, objects)) in entries.iter().enumerate() {
             let is_last_entry = i == entries.len() - 1;
-            let entry_prefix = if is_last_entry {
-                "└──"
-            } else {
-                "├──"
-            };
-            eprintln!("{entry_prefix} 📄 {entry}");
+            let entry_prefix = if is_last_entry { "`--" } else { "|--" };
+            eprintln!("{entry_prefix} [entry] {entry}");
 
             for (j, obj) in objects.iter().enumerate() {
                 let is_last_obj = j == objects.len() - 1;
-                let branch = if is_last_entry { "    " } else { "│   " };
-                let obj_prefix = if is_last_obj {
-                    "└──"
-                } else {
-                    "├──"
-                };
-                eprintln!("{branch}{obj_prefix} ☁️  {obj}");
+                let branch = if is_last_entry { "    " } else { "|   " };
+                let obj_prefix = if is_last_obj { "`--" } else { "|--" };
+                eprintln!("{branch}{obj_prefix} [obj] {obj}");
             }
         }
 
         eprintln!();
-        eprintln!("   📄 Entries:    {} total", stats.total_entries);
-        eprintln!("   ✅ Successful: {}", stats.successful_entries);
+        eprintln!("   Entries:    {} total", stats.total_entries);
+        eprintln!("   Successful: {}", stats.successful_entries);
         if stats.failed_entries > 0 {
-            eprintln!("   ❌ Failed:     {}", stats.failed_entries);
+            eprintln!("   Failed:     {}", stats.failed_entries);
         }
         if stats.upload_count > 0 {
-            eprintln!("   ☁️  Uploads:    {}", stats.upload_count);
+            eprintln!("   Uploads:    {}", stats.upload_count);
         }
-        eprintln!("   ⏱️  Duration:   {:.2}s", duration.as_secs_f64());
-        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("   Duration:   {:.2}s", duration.as_secs_f64());
+        eprintln!("========================================");
     }
 }
 
@@ -184,25 +176,25 @@ impl Default for SimpleReporter {
 
 impl ProgressReporter for SimpleReporter {
     fn set_phase(&self, phase: BatchPhase) {
-        let (emoji, msg) = match phase {
-            BatchPhase::LoadingConfig => ("📋", "Loading configuration..."),
-            BatchPhase::CompilingSchema => ("🔧", "Compiling schema..."),
-            BatchPhase::ProcessingDocuments => ("📄", "Processing documents..."),
-            BatchPhase::UploadingStorage => ("☁️ ", "Uploading to storage..."),
-            BatchPhase::SyncingDatabase => ("🗄️ ", "Syncing database..."),
-            BatchPhase::CleaningUp => ("🧹", "Cleaning up old objects..."),
-            BatchPhase::Completed => ("✅", "Completed!"),
+        let msg = match phase {
+            BatchPhase::LoadingConfig => "[....] Loading configuration...",
+            BatchPhase::CompilingSchema => "[....] Compiling schema...",
+            BatchPhase::ProcessingDocuments => "[....] Processing documents...",
+            BatchPhase::UploadingStorage => "[....] Uploading to storage...",
+            BatchPhase::SyncingDatabase => "[....] Syncing database...",
+            BatchPhase::CleaningUp => "[....] Cleaning up old objects...",
+            BatchPhase::Completed => "[ OK ] Completed!",
             BatchPhase::Failed(ref e) => {
-                eprintln!("❌ Failed: {e}");
+                eprintln!("[FAIL] Failed: {e}");
                 return;
             }
         };
-        eprintln!("{emoji} {msg}");
+        eprintln!("{msg}");
     }
 
     fn register_entries(&self, entries: Vec<String>) {
         self.stats.write().unwrap().total_entries = entries.len();
-        eprintln!("   Found {} entries", entries.len());
+        eprintln!("       Found {} entries", entries.len());
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
@@ -212,7 +204,7 @@ impl ProgressReporter for SimpleReporter {
             }
             EntryStatus::Failed(ref e) => {
                 self.stats.write().unwrap().failed_entries += 1;
-                eprintln!("   ✗ {entry}: {e}");
+                eprintln!("       [FAIL] {entry}: {e}");
             }
             _ => {}
         }
@@ -237,26 +229,26 @@ impl ProgressReporter for SimpleReporter {
                 self.stats.write().unwrap().upload_count += 1;
             }
             UploadStatus::Failed(ref e) => {
-                eprintln!("   ✗ upload {object_key}: {e}");
+                eprintln!("       [FAIL] upload {object_key}: {e}");
             }
             _ => {}
         }
     }
 
     fn add_entry_warning(&self, entry: &str, message: &str) {
-        eprintln!("   ⚠️  {entry}: {message}");
+        eprintln!("       [WARN] {entry}: {message}");
     }
 
     fn log_info(&self, message: &str) {
-        eprintln!("ℹ️  {message}");
+        eprintln!("[info] {message}");
     }
 
     fn log_warn(&self, message: &str) {
-        eprintln!("⚠️  {message}");
+        eprintln!("[WARN] {message}");
     }
 
     fn log_error(&self, message: &str) {
-        eprintln!("❌ {message}");
+        eprintln!("[ERR!] {message}");
     }
 
     fn finish(&self) {
@@ -326,17 +318,17 @@ impl FancyReporter {
         let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
 
         eprintln!();
-        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        eprintln!("   📄 Entries:    {} total", stats.total_entries);
-        eprintln!("   ✅ Successful: {}", stats.successful_entries);
+        eprintln!("========================================");
+        eprintln!("   Entries:    {} total", stats.total_entries);
+        eprintln!("   Successful: {}", stats.successful_entries);
         if stats.failed_entries > 0 {
-            eprintln!("   ❌ Failed:     {}", stats.failed_entries);
+            eprintln!("   Failed:     {}", stats.failed_entries);
         }
         if stats.upload_count > 0 {
-            eprintln!("   ☁️  Uploads:    {}", stats.upload_count);
+            eprintln!("   Uploads:    {}", stats.upload_count);
         }
-        eprintln!("   ⏱️  Duration:   {:.2}s", duration.as_secs_f64());
-        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("   Duration:   {:.2}s", duration.as_secs_f64());
+        eprintln!("========================================");
     }
 
     fn status_detail(status: &EntryStatus) -> &'static str {
@@ -365,13 +357,13 @@ impl FancyReporter {
     /// Print a completed entry with its tree of uploads and warnings
     fn print_entry_tree(&self, entry: &str, info: &EntryInfo, is_last: bool) {
         let status_icon = match &info.status {
-            Some(EntryStatus::Done) => "✅",
-            Some(EntryStatus::Failed(_)) => "❌",
-            _ => "📄",
+            Some(EntryStatus::Done) => "[ OK ]",
+            Some(EntryStatus::Failed(_)) => "[FAIL]",
+            _ => "[....]",
         };
 
-        let entry_prefix = if is_last { "└──" } else { "├──" };
-        let branch = if is_last { "    " } else { "│   " };
+        let entry_prefix = if is_last { "`--" } else { "|--" };
+        let branch = if is_last { "    " } else { "|   " };
 
         self.multi
             .println(format!("{entry_prefix} {status_icon} {entry}"))
@@ -384,13 +376,9 @@ impl FancyReporter {
         for warning in &info.warnings {
             child_idx += 1;
             let is_last_child = child_idx == total_children;
-            let child_prefix = if is_last_child {
-                "└──"
-            } else {
-                "├──"
-            };
+            let child_prefix = if is_last_child { "`--" } else { "|--" };
             self.multi
-                .println(format!("{branch}{child_prefix} ⚠️  {warning}"))
+                .println(format!("{branch}{child_prefix} [WARN] {warning}"))
                 .ok();
         }
 
@@ -398,11 +386,7 @@ impl FancyReporter {
         for upload in &info.uploads {
             child_idx += 1;
             let is_last_child = child_idx == total_children;
-            let child_prefix = if is_last_child {
-                "└──"
-            } else {
-                "├──"
-            };
+            let child_prefix = if is_last_child { "`--" } else { "|--" };
             let status_suffix = match &upload.status {
                 UploadStatus::Uploaded => " (new)",
                 UploadStatus::Skipped => " (skip)",
@@ -411,7 +395,7 @@ impl FancyReporter {
             };
             self.multi
                 .println(format!(
-                    "{branch}{child_prefix} ☁️  {}{status_suffix}",
+                    "{branch}{child_prefix} [obj] {}{status_suffix}",
                     upload.key
                 ))
                 .ok();
@@ -428,15 +412,15 @@ impl Default for FancyReporter {
 impl ProgressReporter for FancyReporter {
     fn set_phase(&self, phase: BatchPhase) {
         let msg = match phase {
-            BatchPhase::LoadingConfig => "📋 Loading configuration...",
-            BatchPhase::CompilingSchema => "🔧 Compiling schema...",
-            BatchPhase::ProcessingDocuments => "📄 Processing documents...",
-            BatchPhase::UploadingStorage => "☁️  Uploading to storage...",
-            BatchPhase::SyncingDatabase => "🗄️  Syncing database...",
-            BatchPhase::CleaningUp => "🧹 Cleaning up old objects...",
-            BatchPhase::Completed => "✅ Completed!",
+            BatchPhase::LoadingConfig => "[....] Loading configuration...",
+            BatchPhase::CompilingSchema => "[....] Compiling schema...",
+            BatchPhase::ProcessingDocuments => "[....] Processing documents...",
+            BatchPhase::UploadingStorage => "[....] Uploading to storage...",
+            BatchPhase::SyncingDatabase => "[....] Syncing database...",
+            BatchPhase::CleaningUp => "[....] Cleaning up old objects...",
+            BatchPhase::Completed => "[ OK ] Completed!",
             BatchPhase::Failed(ref e) => {
-                self.multi.println(format!("❌ Failed: {e}")).ok();
+                self.multi.println(format!("[FAIL] Failed: {e}")).ok();
                 return;
             }
         };
@@ -543,9 +527,9 @@ impl ProgressReporter for FancyReporter {
         // For uploading state, create or update spinner
         let mut active = self.active_uploads.write().unwrap();
         if let Some(pb) = active.get(object_key) {
-            pb.set_message(format!("☁️  {object_key}"));
+            pb.set_message(format!("[obj] {object_key}"));
         } else {
-            let pb = self.create_spinner(format!("☁️  {object_key}"));
+            let pb = self.create_spinner(format!("[obj] {object_key}"));
             active.insert(object_key.to_string(), pb);
         }
     }
@@ -558,15 +542,15 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn log_info(&self, message: &str) {
-        self.multi.println(format!("ℹ️  {message}")).ok();
+        self.multi.println(format!("[info] {message}")).ok();
     }
 
     fn log_warn(&self, message: &str) {
-        self.multi.println(format!("⚠️  {message}")).ok();
+        self.multi.println(format!("[WARN] {message}")).ok();
     }
 
     fn log_error(&self, message: &str) {
-        self.multi.println(format!("❌ {message}")).ok();
+        self.multi.println(format!("[ERR!] {message}")).ok();
     }
 
     fn finish(&self) {
@@ -595,7 +579,7 @@ impl ProgressReporter for FancyReporter {
 
         if !entries_with_content.is_empty() {
             self.multi.println("").ok();
-            self.multi.println("📊 Results:").ok();
+            self.multi.println("Results:").ok();
 
             for (i, (entry, info)) in entries_with_content.iter().enumerate() {
                 let is_last = i == entries_with_content.len() - 1;
