@@ -91,6 +91,61 @@ fn heading_to_id(content: &str) -> String {
         .collect()
 }
 
+/// HTML block-level element tags that should not be wrapped in <p>
+const BLOCK_ELEMENTS: &[&str] = &[
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "canvas",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "noscript",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "tfoot",
+    "ul",
+    "video",
+];
+
+/// Check if any child node contains a block-level element
+fn contains_block_element(children: &[Node<KeepRaw>]) -> bool {
+    children.iter().any(|child| match child {
+        Node::Eager { tag, children, .. } => {
+            BLOCK_ELEMENTS.contains(&tag.as_ref()) || contains_block_element(children)
+        }
+        Node::Lazy { keep, children, .. } => {
+            // Codeblocks and images with captions become block elements
+            matches!(
+                keep,
+                KeepRaw::Codeblock { .. } | KeepRaw::Image { .. } | KeepRaw::Alert { .. }
+            ) || contains_block_element(children)
+        }
+        Node::Text(_) => false,
+    })
+}
+
 fn parse_until_next_heading<'src>(
     current_level: HeadingLevel,
     parser: &mut ParserImpl<'src>,
@@ -363,11 +418,19 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
             children,
         }),
         Tag::MetadataBlock(_) => MaybeMany::one(Node::Text(Default::default())),
-        Tag::Paragraph => MaybeMany::one(Node::Eager {
-            tag: "p".into(),
-            attrs: Default::default(),
-            children,
-        }),
+        Tag::Paragraph => {
+            // Use <div> instead of <p> if paragraph contains block elements
+            let tag = if contains_block_element(&children) {
+                "div"
+            } else {
+                "p"
+            };
+            MaybeMany::one(Node::Eager {
+                tag: tag.into(),
+                attrs: Default::default(),
+                children,
+            })
+        }
         Tag::Emphasis => MaybeMany::one(Node::Eager {
             tag: "em".into(),
             attrs: Default::default(),
