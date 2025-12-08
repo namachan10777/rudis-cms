@@ -9,3 +9,4 @@ build-dir = "book/en"
 
 [output.html]
 git-repository-url = "https://github.com/namachan10777/rudis-cms"
+theme = "theme"
