@@ -45,16 +45,6 @@ pub(crate) fn sqlite_index_expr<'a>(
     })
 }
 
-/// Check if a field type is a records type (nested table).
-pub(crate) fn is_records_field(field: &FieldType) -> bool {
-    matches!(field, FieldType::Records { .. })
-}
-
-/// Check if a field type is the ID field.
-pub(crate) fn is_id_field(field: &FieldType) -> bool {
-    matches!(field, FieldType::Id)
-}
-
 /// Write a comma-separated list of items.
 pub fn write_comma_separated<I, F>(
     out: &mut String,
