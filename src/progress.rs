@@ -85,7 +85,46 @@ impl ProgressReporter for NullReporter {
 }
 
 /// A simple reporter that just prints to stderr (for non-TTY).
-pub struct SimpleReporter;
+pub struct SimpleReporter {
+    stats: std::sync::RwLock<Stats>,
+}
+
+impl SimpleReporter {
+    pub fn new() -> Self {
+        Self {
+            stats: std::sync::RwLock::new(Stats {
+                start_time: Some(std::time::Instant::now()),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn print_summary(&self) {
+        let stats = self.stats.read().unwrap();
+        let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
+
+        eprintln!();
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("📊 Summary");
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("   📄 Entries:    {} total", stats.total_entries);
+        eprintln!("   ✅ Successful: {}", stats.successful_entries);
+        if stats.failed_entries > 0 {
+            eprintln!("   ❌ Failed:     {}", stats.failed_entries);
+        }
+        if stats.upload_count > 0 {
+            eprintln!("   ☁️  Uploads:    {}", stats.upload_count);
+        }
+        eprintln!("   ⏱️  Duration:   {:.2}s", duration.as_secs_f64());
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    }
+}
+
+impl Default for SimpleReporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ProgressReporter for SimpleReporter {
     fn set_phase(&self, phase: BatchPhase) {
@@ -106,18 +145,26 @@ impl ProgressReporter for SimpleReporter {
     }
 
     fn register_entries(&self, entries: Vec<String>) {
+        self.stats.write().unwrap().total_entries = entries.len();
         eprintln!("   Found {} entries", entries.len());
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
         match status {
-            EntryStatus::Done => eprintln!("   ✓ {entry}"),
-            EntryStatus::Failed(ref e) => eprintln!("   ✗ {entry}: {e}"),
+            EntryStatus::Done => {
+                self.stats.write().unwrap().successful_entries += 1;
+                eprintln!("   ✓ {entry}");
+            }
+            EntryStatus::Failed(ref e) => {
+                self.stats.write().unwrap().failed_entries += 1;
+                eprintln!("   ✗ {entry}: {e}");
+            }
             _ => {}
         }
     }
 
     fn set_upload_progress(&self, current: usize, total: usize) {
+        self.stats.write().unwrap().upload_count = total;
         if current == total {
             eprintln!("   Uploaded {total} objects");
         }
@@ -135,7 +182,19 @@ impl ProgressReporter for SimpleReporter {
         eprintln!("❌ {message}");
     }
 
-    fn finish(&self) {}
+    fn finish(&self) {
+        self.print_summary();
+    }
+}
+
+/// Statistics collected during processing.
+#[derive(Debug, Default)]
+struct Stats {
+    total_entries: usize,
+    successful_entries: usize,
+    failed_entries: usize,
+    upload_count: usize,
+    start_time: Option<std::time::Instant>,
 }
 
 /// Fancy interactive reporter with progress bars (for TTY).
@@ -144,6 +203,7 @@ pub struct FancyReporter {
     phase_bar: indicatif::ProgressBar,
     entries: std::sync::RwLock<std::collections::HashMap<String, indicatif::ProgressBar>>,
     main_progress: std::sync::RwLock<Option<indicatif::ProgressBar>>,
+    stats: std::sync::RwLock<Stats>,
 }
 
 impl FancyReporter {
@@ -162,7 +222,31 @@ impl FancyReporter {
             phase_bar,
             entries: std::sync::RwLock::new(std::collections::HashMap::new()),
             main_progress: std::sync::RwLock::new(None),
+            stats: std::sync::RwLock::new(Stats {
+                start_time: Some(std::time::Instant::now()),
+                ..Default::default()
+            }),
         }
+    }
+
+    fn print_summary(&self) {
+        let stats = self.stats.read().unwrap();
+        let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
+
+        eprintln!();
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("📊 Summary");
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("   📄 Entries:    {} total", stats.total_entries);
+        eprintln!("   ✅ Successful: {}", stats.successful_entries);
+        if stats.failed_entries > 0 {
+            eprintln!("   ❌ Failed:     {}", stats.failed_entries);
+        }
+        if stats.upload_count > 0 {
+            eprintln!("   ☁️  Uploads:    {}", stats.upload_count);
+        }
+        eprintln!("   ⏱️  Duration:   {:.2}s", duration.as_secs_f64());
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
     fn status_to_string(status: &EntryStatus) -> String {
@@ -210,10 +294,13 @@ impl ProgressReporter for FancyReporter {
 
     fn register_entries(&self, entries: Vec<String>) {
         let mut map = self.entries.write().unwrap();
-        let total = entries.len() as u64;
+        let total = entries.len();
+
+        // Update stats
+        self.stats.write().unwrap().total_entries = total;
 
         // Create main progress bar
-        let main_pb = self.multi.add(indicatif::ProgressBar::new(total));
+        let main_pb = self.multi.add(indicatif::ProgressBar::new(total as u64));
         main_pb.set_style(
             indicatif::ProgressStyle::default_bar()
                 .template("   {bar:40.cyan/blue} {pos}/{len} entries")
@@ -247,6 +334,14 @@ impl ProgressReporter for FancyReporter {
                 if let Some(ref main_pb) = *self.main_progress.read().unwrap() {
                     main_pb.inc(1);
                 }
+
+                // Update stats
+                let mut stats = self.stats.write().unwrap();
+                match status {
+                    EntryStatus::Done => stats.successful_entries += 1,
+                    EntryStatus::Failed(_) => stats.failed_entries += 1,
+                    _ => {}
+                }
             }
         }
     }
@@ -254,6 +349,9 @@ impl ProgressReporter for FancyReporter {
     fn set_upload_progress(&self, current: usize, total: usize) {
         self.phase_bar
             .set_message(format!("☁️  Uploading to storage... ({current}/{total})"));
+
+        // Update stats with total upload count
+        self.stats.write().unwrap().upload_count = total;
     }
 
     fn log_info(&self, message: &str) {
@@ -281,6 +379,9 @@ impl ProgressReporter for FancyReporter {
         }
 
         self.phase_bar.finish_and_clear();
+
+        // Print summary
+        self.print_summary();
     }
 }
 
@@ -289,6 +390,6 @@ pub fn create_reporter() -> Arc<dyn ProgressReporter> {
     if console::Term::stderr().is_term() {
         Arc::new(FancyReporter::new())
     } else {
-        Arc::new(SimpleReporter)
+        Arc::new(SimpleReporter::new())
     }
 }
