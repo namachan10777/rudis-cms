@@ -116,14 +116,21 @@ async fn run_batch(
             let path_str = path.display().to_string();
             reporter.update_entry(&path_str, EntryStatus::Processing);
 
-            let result = rudis_cms::process_data::table::push_rows_from_document(
-                &collection.table,
-                hasher,
-                compiled_schema,
-                &collection.syntax,
-                &path,
+            let (result, warnings) = rudis_cms::warning::collect_warnings(
+                rudis_cms::process_data::table::push_rows_from_document(
+                    &collection.table,
+                    hasher,
+                    compiled_schema,
+                    &collection.syntax,
+                    &path,
+                ),
             )
             .await;
+
+            // Report collected warnings
+            for warning in warnings {
+                reporter.add_entry_warning(&path_str, &warning);
+            }
 
             match &result {
                 Ok(_) => reporter.update_entry(&path_str, EntryStatus::Done),
@@ -222,14 +229,21 @@ async fn run_dump(
             let path_str = path.display().to_string();
             reporter.update_entry(&path_str, EntryStatus::Processing);
 
-            let result = rudis_cms::process_data::table::push_rows_from_document(
-                &collection.table,
-                hasher,
-                compiled_schema,
-                &collection.syntax,
-                &path,
+            let (result, warnings) = rudis_cms::warning::collect_warnings(
+                rudis_cms::process_data::table::push_rows_from_document(
+                    &collection.table,
+                    hasher,
+                    compiled_schema,
+                    &collection.syntax,
+                    &path,
+                ),
             )
             .await;
+
+            // Report collected warnings
+            for warning in warnings {
+                reporter.add_entry_warning(&path_str, &warning);
+            }
 
             match &result {
                 Ok(_) => reporter.update_entry(&path_str, EntryStatus::Done),

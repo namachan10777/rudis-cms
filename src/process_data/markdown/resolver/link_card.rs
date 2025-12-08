@@ -190,7 +190,10 @@ impl<'s> LinkCardExtractor<'s> {
         let tasks = self.links.into_iter().map(|link| async move {
             let card = resolve_link_card(link)
                 .await
-                .inspect_err(|e| warn!(%e, "failed to resolve isolated link"))
+                .inspect_err(|e| {
+                    warn!(%e, "failed to resolve isolated link");
+                    crate::warn_entry!("failed to resolve link card: {link}: {e}");
+                })
                 .ok()?;
             Some((link.to_owned(), card))
         });

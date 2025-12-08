@@ -574,6 +574,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
+                    crate::warn_entry!("failed to parse katex display math: {e}");
                     Node::Lazy {
                         keep: KeepRaw::Codeblock {
                             meta: CodeblockMeta {
@@ -595,6 +596,7 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
                 },
                 Err(e) => {
                     warn!(%e, "failed to parse katex math");
+                    crate::warn_entry!("failed to parse katex inline math: {e}");
                     Node::Eager {
                         tag: "span".into(),
                         attrs: Default::default(),

@@ -59,6 +59,7 @@ pub(crate) fn raw_to_expanded<E>(src: &str) -> Vec<Node<E>> {
             .collect(),
         Err(e) => {
             warn!(%e, "failed to parse html");
+            crate::warn_entry!("failed to parse html: {e}");
             vec![Node::Text(src.to_string())]
         }
     }

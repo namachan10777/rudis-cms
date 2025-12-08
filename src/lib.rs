@@ -11,6 +11,7 @@ pub mod schema;
 #[cfg(test)]
 mod tests;
 pub mod typescript;
+pub mod warning;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {detail}")]
