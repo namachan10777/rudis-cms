@@ -131,6 +131,7 @@ pub async fn process_image_field(
         hash: reference.hash,
         pointer: reference.pointer.clone(),
         content_type: image.content_type,
+        source_entry: None,
     };
     Ok(FieldValue::WithUpload {
         column: ColumnValue::Image(reference),
@@ -174,6 +175,7 @@ pub async fn process_file_field(
             hash: reference.hash,
             pointer: reference.pointer.clone(),
             content_type: file.content_type,
+            source_entry: None,
         },
         column: ColumnValue::File(reference),
     })
@@ -278,6 +280,7 @@ pub async fn process_markdown_field(
                         hash: reference.hash,
                         pointer: reference.pointer,
                         content_type: reference.content_type,
+                        source_entry: None,
                     }],
                 }
             })
@@ -473,6 +476,7 @@ async fn process_row_impl(
             hash: reference.hash,
             pointer: reference.pointer,
             content_type: reference.content_type,
+            source_entry: None,
         });
     }
     Ok(RowNode {

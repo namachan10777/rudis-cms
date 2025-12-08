@@ -9,4 +9,5 @@ pub mod sql;
 pub mod storage;
 
 pub use executor::{JobError, JobExecutor};
+pub use filter::partition_uploads;
 pub use multiplex::{AssetDelete, AssetUpload, KvDelete, KvUpload, R2Delete, R2Upload};

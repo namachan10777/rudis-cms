@@ -80,7 +80,8 @@ impl<
     A: storage::asset::Client,
 > JobExecutor<D, K, O, A>
 {
-    async fn fetch_objects_metadata(
+    /// Fetch existing object metadata from the database.
+    pub async fn fetch_objects_metadata(
         &self,
         schema: &CollectionSchema,
     ) -> Result<

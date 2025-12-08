@@ -48,6 +48,9 @@ pub struct Upload {
     pub hash: blake3::Hash,
     pub pointer: StoragePointer,
     pub content_type: String,
+    /// The source entry this upload belongs to (e.g., "posts/hello.md").
+    /// Set after processing by the caller.
+    pub source_entry: Option<String>,
 }
 
 /// A collection of uploads.

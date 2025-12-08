@@ -28,8 +28,10 @@ pub enum EntryStatus {
 pub enum UploadStatus {
     /// Currently uploading
     Uploading,
-    /// Successfully uploaded
-    Done,
+    /// Successfully uploaded (new object)
+    Uploaded,
+    /// Skipped (already exists with same hash)
+    Skipped,
     /// Failed with error
     Failed(String),
 }
@@ -231,7 +233,7 @@ impl ProgressReporter for SimpleReporter {
 
     fn update_upload(&self, object_key: &str, status: UploadStatus) {
         match status {
-            UploadStatus::Done => {
+            UploadStatus::Uploaded | UploadStatus::Skipped => {
                 self.stats.write().unwrap().upload_count += 1;
             }
             UploadStatus::Failed(ref e) => {
@@ -488,13 +490,16 @@ impl ProgressReporter for FancyReporter {
 
     fn update_upload(&self, object_key: &str, status: UploadStatus) {
         // If done or failed, remove spinner
-        if matches!(status, UploadStatus::Done | UploadStatus::Failed(_)) {
+        if matches!(
+            status,
+            UploadStatus::Uploaded | UploadStatus::Skipped | UploadStatus::Failed(_)
+        ) {
             if let Some(pb) = self.active_uploads.write().unwrap().remove(object_key) {
                 pb.finish_and_clear();
             }
 
             // Update stats
-            if matches!(status, UploadStatus::Done) {
+            if matches!(status, UploadStatus::Uploaded | UploadStatus::Skipped) {
                 self.stats.write().unwrap().upload_count += 1;
             }
             return;

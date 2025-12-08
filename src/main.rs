@@ -132,6 +132,14 @@ async fn run_batch(
                 reporter.add_entry_warning(&path_str, &warning);
             }
 
+            // Set source_entry on uploads
+            let result = result.map(|(tables, mut uploads)| {
+                for upload in &mut uploads {
+                    upload.source_entry = Some(path_str.clone());
+                }
+                (tables, uploads)
+            });
+
             match &result {
                 Ok(_) => reporter.update_entry(&path_str, EntryStatus::Done),
                 Err(e) => reporter.update_entry(&path_str, EntryStatus::Failed(e.to_string())),
@@ -152,21 +160,32 @@ async fn run_batch(
 
     reporter.set_phase(BatchPhase::UploadingStorage);
 
-    // Register all uploads (without entry association for now)
-    for upload in &uploads {
+    // Fetch existing objects to determine which uploads can be skipped
+    let present_objects = executor.fetch_objects_metadata(&compiled_schema).await?;
+    let (to_upload, skipped) = job::partition_uploads(uploads, &present_objects, force);
+
+    // Register uploads with their source entries
+    for upload in &to_upload {
+        let entry = upload.source_entry.as_deref().unwrap_or("_unknown");
         let key = upload.pointer.to_string();
-        reporter.register_upload("_global", &key);
+        reporter.register_upload(entry, &key);
         reporter.update_upload(&key, UploadStatus::Uploading);
+    }
+    for upload in &skipped {
+        let entry = upload.source_entry.as_deref().unwrap_or("_unknown");
+        let key = upload.pointer.to_string();
+        reporter.register_upload(entry, &key);
+        reporter.update_upload(&key, UploadStatus::Skipped);
     }
 
     executor
-        .batch(&compiled_schema, &tables, uploads.clone(), force)
+        .batch(&compiled_schema, &tables, to_upload.clone(), force)
         .await?;
 
-    // Mark all uploads as done
-    for upload in &uploads {
+    // Mark uploaded ones as done
+    for upload in &to_upload {
         let key = upload.pointer.to_string();
-        reporter.update_upload(&key, UploadStatus::Done);
+        reporter.update_upload(&key, UploadStatus::Uploaded);
     }
 
     reporter.set_phase(BatchPhase::Completed);
@@ -245,6 +264,14 @@ async fn run_dump(
                 reporter.add_entry_warning(&path_str, &warning);
             }
 
+            // Set source_entry on uploads
+            let result = result.map(|(tables, mut uploads)| {
+                for upload in &mut uploads {
+                    upload.source_entry = Some(path_str.clone());
+                }
+                (tables, uploads)
+            });
+
             match &result {
                 Ok(_) => reporter.update_entry(&path_str, EntryStatus::Done),
                 Err(e) => reporter.update_entry(&path_str, EntryStatus::Failed(e.to_string())),
@@ -269,10 +296,11 @@ async fn run_dump(
 
     reporter.set_phase(BatchPhase::UploadingStorage);
 
-    // Register all uploads (without entry association for now)
+    // For dump, all uploads are new (force=true)
     for upload in &uploads {
+        let entry = upload.source_entry.as_deref().unwrap_or("_unknown");
         let key = upload.pointer.to_string();
-        reporter.register_upload("_global", &key);
+        reporter.register_upload(entry, &key);
         reporter.update_upload(&key, UploadStatus::Uploading);
     }
 
@@ -283,7 +311,7 @@ async fn run_dump(
     // Mark all uploads as done
     for upload in &uploads {
         let key = upload.pointer.to_string();
-        reporter.update_upload(&key, UploadStatus::Done);
+        reporter.update_upload(&key, UploadStatus::Uploaded);
     }
 
     reporter.set_phase(BatchPhase::Completed);

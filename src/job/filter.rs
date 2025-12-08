@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use crate::process_data::{self, StoragePointer};
 
 /// Filter uploads to exclude already-present objects (unless force is true).
-pub fn filter_uploads<T>(
+pub(crate) fn filter_uploads<T>(
     uploads: impl Iterator<Item = process_data::table::Upload>,
     present_objects: &IndexMap<blake3::Hash, T>,
     force: bool,
@@ -21,6 +21,22 @@ pub fn filter_uploads<T>(
             None
         }
     })
+}
+
+/// Partition uploads into (to_upload, skipped) based on existing objects.
+/// Returns uploads that need to be uploaded and those that can be skipped.
+pub fn partition_uploads<T>(
+    uploads: process_data::table::Uploads,
+    present_objects: &IndexMap<blake3::Hash, T>,
+    force: bool,
+) -> (process_data::table::Uploads, process_data::table::Uploads) {
+    if force {
+        (uploads, Vec::new())
+    } else {
+        uploads
+            .into_iter()
+            .partition(|upload| !present_objects.contains_key(&upload.hash))
+    }
 }
 
 /// Find objects that have disappeared (no longer referenced).
