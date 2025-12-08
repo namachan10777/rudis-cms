@@ -274,10 +274,17 @@ struct Stats {
     start_time: Option<std::time::Instant>,
 }
 
+/// Upload info with status.
+#[derive(Debug, Clone)]
+struct UploadInfo {
+    key: String,
+    status: UploadStatus,
+}
+
 /// Entry info for tracking warnings and uploads per entry.
 #[derive(Debug, Default)]
 struct EntryInfo {
-    uploads: Vec<String>,
+    uploads: Vec<UploadInfo>,
     warnings: Vec<String>,
     status: Option<EntryStatus>,
 }
@@ -356,44 +363,57 @@ impl FancyReporter {
     }
 
     /// Print a completed entry with its tree of uploads and warnings
-    fn print_completed_entry(&self, entry: &str, info: &EntryInfo) {
+    fn print_entry_tree(&self, entry: &str, info: &EntryInfo, is_last: bool) {
         let status_icon = match &info.status {
             Some(EntryStatus::Done) => "✅",
             Some(EntryStatus::Failed(_)) => "❌",
-            _ => "✅",
+            _ => "📄",
         };
 
-        let has_children = !info.uploads.is_empty() || !info.warnings.is_empty();
+        let entry_prefix = if is_last { "└──" } else { "├──" };
+        let branch = if is_last { "    " } else { "│   " };
 
-        if has_children {
+        self.multi
+            .println(format!("{entry_prefix} {status_icon} {entry}"))
+            .ok();
+
+        let total_children = info.warnings.len() + info.uploads.len();
+        let mut child_idx = 0;
+
+        // Print warnings
+        for warning in &info.warnings {
+            child_idx += 1;
+            let is_last_child = child_idx == total_children;
+            let child_prefix = if is_last_child {
+                "└──"
+            } else {
+                "├──"
+            };
             self.multi
-                .println(format!("├── {status_icon} {entry}"))
+                .println(format!("{branch}{child_prefix} ⚠️  {warning}"))
                 .ok();
+        }
 
-            // Print warnings
-            for (i, warning) in info.warnings.iter().enumerate() {
-                let is_last = i == info.warnings.len() - 1 && info.uploads.is_empty();
-                let prefix = if is_last {
-                    "│   └──"
-                } else {
-                    "│   ├──"
-                };
-                self.multi.println(format!("{prefix} ⚠️  {warning}")).ok();
-            }
-
-            // Print uploads
-            for (i, upload) in info.uploads.iter().enumerate() {
-                let is_last = i == info.uploads.len() - 1;
-                let prefix = if is_last {
-                    "│   └──"
-                } else {
-                    "│   ├──"
-                };
-                self.multi.println(format!("{prefix} ☁️  {upload}")).ok();
-            }
-        } else {
+        // Print uploads with status
+        for upload in &info.uploads {
+            child_idx += 1;
+            let is_last_child = child_idx == total_children;
+            let child_prefix = if is_last_child {
+                "└──"
+            } else {
+                "├──"
+            };
+            let status_suffix = match &upload.status {
+                UploadStatus::Uploaded => " (new)",
+                UploadStatus::Skipped => " (skip)",
+                UploadStatus::Uploading => " (uploading...)",
+                UploadStatus::Failed(e) => &format!(" (failed: {e})"),
+            };
             self.multi
-                .println(format!("├── {status_icon} {entry}"))
+                .println(format!(
+                    "{branch}{child_prefix} ☁️  {}{status_suffix}",
+                    upload.key
+                ))
                 .ok();
         }
     }
@@ -435,7 +455,7 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
-        // If done or failed, print completed line and remove spinner
+        // If done or failed, remove spinner and update status
         if matches!(status, EntryStatus::Done | EntryStatus::Failed(_)) {
             // Remove active spinner if exists
             if let Some(pb) = self.active_entries.write().unwrap().remove(entry) {
@@ -447,11 +467,8 @@ impl ProgressReporter for FancyReporter {
                 info.status = Some(status.clone());
             }
 
-            // Print completed entry with its tree
-            let info_map = self.entry_info.read().unwrap();
-            if let Some(info) = info_map.get(entry) {
-                self.print_completed_entry(entry, info);
-            }
+            // Don't print entry tree here - uploads aren't registered yet
+            // Tree will be printed in finish()
 
             // Update stats
             let mut stats = self.stats.write().unwrap();
@@ -476,9 +493,12 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn register_upload(&self, entry: &str, object_key: &str) {
-        // Add to entry's upload list
+        // Add to entry's upload list with initial status
         if let Some(info) = self.entry_info.write().unwrap().get_mut(entry) {
-            info.uploads.push(object_key.to_string());
+            info.uploads.push(UploadInfo {
+                key: object_key.to_string(),
+                status: UploadStatus::Uploading,
+            });
         }
 
         // Track reverse mapping
@@ -489,6 +509,21 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn update_upload(&self, object_key: &str, status: UploadStatus) {
+        // Update the upload status in entry_info
+        if let Some(entry) = self
+            .object_to_entry
+            .read()
+            .unwrap()
+            .get(object_key)
+            .cloned()
+        {
+            if let Some(info) = self.entry_info.write().unwrap().get_mut(&entry) {
+                if let Some(upload) = info.uploads.iter_mut().find(|u| u.key == object_key) {
+                    upload.status = status.clone();
+                }
+            }
+        }
+
         // If done or failed, remove spinner
         if matches!(
             status,
@@ -543,6 +578,29 @@ impl ProgressReporter for FancyReporter {
         // Clear any remaining upload spinners
         for (_, pb) in self.active_uploads.write().unwrap().drain() {
             pb.finish_and_clear();
+        }
+
+        // Print entry trees with uploads and warnings
+        let entry_info = self.entry_info.read().unwrap();
+        let mut entries: Vec<_> = entry_info.iter().collect();
+        entries.sort_by_key(|(k, _)| *k);
+
+        // Only print entries that have uploads, warnings, or a final status
+        let entries_with_content: Vec<_> = entries
+            .into_iter()
+            .filter(|(_, info)| {
+                !info.uploads.is_empty() || !info.warnings.is_empty() || info.status.is_some()
+            })
+            .collect();
+
+        if !entries_with_content.is_empty() {
+            self.multi.println("").ok();
+            self.multi.println("📊 Results:").ok();
+
+            for (i, (entry, info)) in entries_with_content.iter().enumerate() {
+                let is_last = i == entries_with_content.len() - 1;
+                self.print_entry_tree(entry, info, is_last);
+            }
         }
 
         // Print summary
