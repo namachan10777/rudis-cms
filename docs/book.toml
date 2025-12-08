@@ -1,0 +1,11 @@
+[book]
+title = "rudis-cms Documentation"
+authors = ["Masaki Nakano"]
+language = "en"
+src = "src/en"
+
+[build]
+build-dir = "book/en"
+
+[output.html]
+git-repository-url = "https://github.com/namachan10777/rudis-cms"
