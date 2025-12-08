@@ -129,21 +129,54 @@ const BLOCK_ELEMENTS: &[&str] = &[
     "video",
 ];
 
-/// Check if any child node contains a block-level element
-fn contains_block_element(children: &[Node<KeepRaw>]) -> bool {
-    children.iter().any(|child| match child {
-        Node::Eager { tag, children, .. } => {
-            BLOCK_ELEMENTS.contains(&tag.as_ref()) || contains_block_element(children)
-        }
-        Node::Lazy { keep, children, .. } => {
+/// Check if a single node is a block-level element
+fn is_block_element(node: &Node<KeepRaw>) -> bool {
+    match node {
+        Node::Eager { tag, .. } => BLOCK_ELEMENTS.contains(&tag.as_ref()),
+        Node::Lazy { keep, .. } => {
             // Codeblocks and images with captions become block elements
             matches!(
                 keep,
                 KeepRaw::Codeblock { .. } | KeepRaw::Image { .. } | KeepRaw::Alert { .. }
-            ) || contains_block_element(children)
+            )
         }
         Node::Text(_) => false,
-    })
+    }
+}
+
+/// Split children at block elements, returning alternating inline groups and block elements.
+/// Each inline group is wrapped in <p>, block elements are returned as-is.
+fn split_paragraph_at_blocks(children: Vec<Node<KeepRaw>>) -> Vec<Node<KeepRaw>> {
+    let mut result = Vec::new();
+    let mut current_inline = Vec::new();
+
+    for child in children {
+        if is_block_element(&child) {
+            // Flush accumulated inline content as <p>
+            if !current_inline.is_empty() {
+                result.push(Node::Eager {
+                    tag: "p".into(),
+                    attrs: Default::default(),
+                    children: std::mem::take(&mut current_inline),
+                });
+            }
+            // Add block element directly
+            result.push(child);
+        } else {
+            current_inline.push(child);
+        }
+    }
+
+    // Flush remaining inline content
+    if !current_inline.is_empty() {
+        result.push(Node::Eager {
+            tag: "p".into(),
+            attrs: Default::default(),
+            children: current_inline,
+        });
+    }
+
+    result
 }
 
 fn parse_until_next_heading<'src>(
@@ -419,17 +452,17 @@ fn parse_spanned<'src>(parser: &mut ParserImpl<'src>, tag: Tag<'src>) -> MaybeMa
         }),
         Tag::MetadataBlock(_) => MaybeMany::one(Node::Text(Default::default())),
         Tag::Paragraph => {
-            // Use <div> instead of <p> if paragraph contains block elements
-            let tag = if contains_block_element(&children) {
-                "div"
+            // Split paragraph at block elements
+            let has_block = children.iter().any(is_block_element);
+            if has_block {
+                MaybeMany::many(split_paragraph_at_blocks(children))
             } else {
-                "p"
-            };
-            MaybeMany::one(Node::Eager {
-                tag: tag.into(),
-                attrs: Default::default(),
-                children,
-            })
+                MaybeMany::one(Node::Eager {
+                    tag: "p".into(),
+                    attrs: Default::default(),
+                    children,
+                })
+            }
         }
         Tag::Emphasis => MaybeMany::one(Node::Eager {
             tag: "em".into(),
