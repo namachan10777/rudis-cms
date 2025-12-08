@@ -72,10 +72,13 @@ pub trait ProgressReporter: Send + Sync {
     /// Update the status of a storage upload.
     fn update_upload(&self, object_key: &str, status: UploadStatus);
 
+    /// Add a warning associated with an entry (shown in tree).
+    fn add_entry_warning(&self, entry: &str, message: &str);
+
     /// Log an informational message.
     fn log_info(&self, message: &str);
 
-    /// Log a warning message.
+    /// Log a warning message (not associated with an entry).
     fn log_warn(&self, message: &str);
 
     /// Log an error message.
@@ -94,6 +97,7 @@ impl ProgressReporter for NullReporter {
     fn update_entry(&self, _entry: &str, _status: EntryStatus) {}
     fn register_upload(&self, _entry: &str, _object_key: &str) {}
     fn update_upload(&self, _object_key: &str, _status: UploadStatus) {}
+    fn add_entry_warning(&self, _entry: &str, _message: &str) {}
     fn log_info(&self, _message: &str) {}
     fn log_warn(&self, _message: &str) {}
     fn log_error(&self, _message: &str) {}
@@ -235,6 +239,10 @@ impl ProgressReporter for SimpleReporter {
             }
             _ => {}
         }
+    }
+
+    fn add_entry_warning(&self, entry: &str, message: &str) {
+        eprintln!("   ⚠️  {entry}: {message}");
     }
 
     fn log_info(&self, message: &str) {
@@ -499,6 +507,13 @@ impl ProgressReporter for FancyReporter {
         } else {
             let pb = self.create_spinner(format!("☁️  {object_key}"));
             active.insert(object_key.to_string(), pb);
+        }
+    }
+
+    fn add_entry_warning(&self, entry: &str, message: &str) {
+        // Add warning to entry's info (will be shown in tree when entry completes)
+        if let Some(info) = self.entry_info.write().unwrap().get_mut(entry) {
+            info.warnings.push(message.to_string());
         }
     }
 
