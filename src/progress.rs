@@ -612,12 +612,10 @@ impl ProgressReporter for FancyReporter {
             .unwrap()
             .get(object_key)
             .cloned()
+            && let Some(info) = self.entry_info.write().unwrap().get_mut(&entry)
+            && let Some(upload) = info.uploads.iter_mut().find(|u| u.key == object_key)
         {
-            if let Some(info) = self.entry_info.write().unwrap().get_mut(&entry) {
-                if let Some(upload) = info.uploads.iter_mut().find(|u| u.key == object_key) {
-                    upload.status = status.clone();
-                }
-            }
+            upload.status = status.clone();
         }
 
         // If done or failed, remove spinner
