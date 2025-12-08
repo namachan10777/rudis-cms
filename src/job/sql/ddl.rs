@@ -1,39 +1,7 @@
 use crate::schema::{CollectionSchema, FieldType};
-use std::{borrow::Cow, fmt::Write as _};
+use std::fmt::Write as _;
 
-fn sqlite_type(field: &FieldType) -> Option<&'static str> {
-    Some(match field {
-        FieldType::Id => "TEXT",
-        FieldType::Hash => "TEXT",
-        FieldType::String { .. } => "TEXT",
-        FieldType::Integer { .. } => "INTEGER",
-        FieldType::Real { .. } => "REAL",
-        FieldType::Boolean { .. } => "INTEGER",
-        FieldType::Date { .. } => "TEXT",
-        FieldType::Datetime { .. } => "TEXT",
-        FieldType::Image { .. } => "TEXT",
-        FieldType::File { .. } => "TEXT",
-        FieldType::Markdown { .. } => "TEXT",
-        FieldType::Records { .. } => return None,
-    })
-}
-
-fn sqlite_index<'a>(name: &'a str, field: &FieldType) -> Option<Cow<'a, str>> {
-    Some(match field {
-        FieldType::Id
-        | FieldType::Hash
-        | FieldType::String { .. }
-        | FieldType::Integer { .. }
-        | FieldType::Real { .. }
-        | FieldType::Boolean { .. } => name.into(),
-        FieldType::Date { .. } => format!("date({name})").into(),
-        FieldType::Datetime { .. } => format!("datetime({name})").into(),
-        FieldType::Image { .. } | FieldType::File { .. } | FieldType::Markdown { .. } => {
-            format!("json_extract({name}, 'hash')").into()
-        }
-        FieldType::Records { .. } => return None,
-    })
-}
+use super::builder::{sqlite_index_expr, sqlite_type};
 
 pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result {
     for (table, schema) in &schema.tables {
@@ -76,7 +44,7 @@ pub fn generate(out: &mut String, schema: &CollectionSchema) -> std::fmt::Result
             {
                 continue;
             }
-            let Some(index) = sqlite_index(name, field) else {
+            let Some(index) = sqlite_index_expr(name, field) else {
                 continue;
             };
             writeln!(

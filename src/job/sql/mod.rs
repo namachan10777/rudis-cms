@@ -1,5 +1,6 @@
 use crate::schema::{CollectionSchema, TableSchema};
 
+pub mod builder;
 mod cleanup;
 mod ddl;
 mod drop_all_table;

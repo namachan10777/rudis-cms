@@ -25,18 +25,18 @@ pub struct ErrorContext {
 }
 
 impl ErrorContext {
-    fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf) -> Self {
         Self { path, id: None }
     }
 
-    fn with_id(&self, id: CompoundId) -> Self {
+    pub(crate) fn with_id(&self, id: CompoundId) -> Self {
         Self {
             path: self.path.clone(),
             id: Some(id),
         }
     }
 
-    fn error(&self, detail: ErrorDetail) -> Error {
+    pub(crate) fn error(&self, detail: ErrorDetail) -> Error {
         Error {
             context: Box::new(self.clone()),
             detail: Box::new(detail),
