@@ -6,6 +6,18 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use unicode_width::UnicodeWidthStr;
+
+/// Pad a string to a given display width, accounting for unicode character widths.
+fn pad_to_width(s: &str, target_width: usize) -> String {
+    let current_width = UnicodeWidthStr::width(s);
+    if current_width >= target_width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(target_width - current_width))
+    }
+}
+
 /// Status of a single entry being processed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntryStatus {
@@ -133,9 +145,9 @@ impl SimpleReporter {
         let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
 
         eprintln!();
-        eprintln!("========================================");
-        eprintln!("Summary");
-        eprintln!("========================================");
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!("{} Summary", pad_to_width("📊", 2));
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         // Print tree of entries and their objects
         let mut entries: Vec<_> = entry_objects.iter().collect();
@@ -143,28 +155,56 @@ impl SimpleReporter {
 
         for (i, (entry, objects)) in entries.iter().enumerate() {
             let is_last_entry = i == entries.len() - 1;
-            let entry_prefix = if is_last_entry { "`--" } else { "|--" };
-            eprintln!("{entry_prefix} [entry] {entry}");
+            let entry_prefix = if is_last_entry {
+                "└──"
+            } else {
+                "├──"
+            };
+            eprintln!("{} {} {}", entry_prefix, pad_to_width("📄", 2), entry);
 
             for (j, obj) in objects.iter().enumerate() {
                 let is_last_obj = j == objects.len() - 1;
-                let branch = if is_last_entry { "    " } else { "|   " };
-                let obj_prefix = if is_last_obj { "`--" } else { "|--" };
-                eprintln!("{branch}{obj_prefix} [obj] {obj}");
+                let branch = if is_last_entry { "    " } else { "│   " };
+                let obj_prefix = if is_last_obj {
+                    "└──"
+                } else {
+                    "├──"
+                };
+                eprintln!("{}{} {} {}", branch, obj_prefix, pad_to_width("⬆️", 2), obj);
             }
         }
 
         eprintln!();
-        eprintln!("   Entries:    {} total", stats.total_entries);
-        eprintln!("   Successful: {}", stats.successful_entries);
+        eprintln!(
+            "   {} Entries:    {} total",
+            pad_to_width("📄", 2),
+            stats.total_entries
+        );
+        eprintln!(
+            "   {} Successful: {}",
+            pad_to_width("✅", 2),
+            stats.successful_entries
+        );
         if stats.failed_entries > 0 {
-            eprintln!("   Failed:     {}", stats.failed_entries);
+            eprintln!(
+                "   {} Failed:     {}",
+                pad_to_width("❌", 2),
+                stats.failed_entries
+            );
         }
         if stats.upload_count > 0 {
-            eprintln!("   Uploads:    {}", stats.upload_count);
+            eprintln!(
+                "   {} Uploads:    {}",
+                pad_to_width("⬆️", 2),
+                stats.upload_count
+            );
         }
-        eprintln!("   Duration:   {:.2}s", duration.as_secs_f64());
-        eprintln!("========================================");
+        eprintln!(
+            "   {} Duration:   {:.2}s",
+            pad_to_width("⏱️", 2),
+            duration.as_secs_f64()
+        );
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 }
 
@@ -176,25 +216,25 @@ impl Default for SimpleReporter {
 
 impl ProgressReporter for SimpleReporter {
     fn set_phase(&self, phase: BatchPhase) {
-        let msg = match phase {
-            BatchPhase::LoadingConfig => "[....] Loading configuration...",
-            BatchPhase::CompilingSchema => "[....] Compiling schema...",
-            BatchPhase::ProcessingDocuments => "[....] Processing documents...",
-            BatchPhase::UploadingStorage => "[....] Uploading to storage...",
-            BatchPhase::SyncingDatabase => "[....] Syncing database...",
-            BatchPhase::CleaningUp => "[....] Cleaning up old objects...",
-            BatchPhase::Completed => "[ OK ] Completed!",
+        let (emoji, msg) = match phase {
+            BatchPhase::LoadingConfig => ("📋", "Loading configuration..."),
+            BatchPhase::CompilingSchema => ("🔧", "Compiling schema..."),
+            BatchPhase::ProcessingDocuments => ("📄", "Processing documents..."),
+            BatchPhase::UploadingStorage => ("⬆️", "Uploading to storage..."),
+            BatchPhase::SyncingDatabase => ("🗄️", "Syncing database..."),
+            BatchPhase::CleaningUp => ("🧹", "Cleaning up old objects..."),
+            BatchPhase::Completed => ("✅", "Completed!"),
             BatchPhase::Failed(ref e) => {
-                eprintln!("[FAIL] Failed: {e}");
+                eprintln!("{} Failed: {e}", pad_to_width("❌", 2));
                 return;
             }
         };
-        eprintln!("{msg}");
+        eprintln!("{} {}", pad_to_width(emoji, 2), msg);
     }
 
     fn register_entries(&self, entries: Vec<String>) {
         self.stats.write().unwrap().total_entries = entries.len();
-        eprintln!("       Found {} entries", entries.len());
+        eprintln!("   Found {} entries", entries.len());
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
@@ -204,7 +244,7 @@ impl ProgressReporter for SimpleReporter {
             }
             EntryStatus::Failed(ref e) => {
                 self.stats.write().unwrap().failed_entries += 1;
-                eprintln!("       [FAIL] {entry}: {e}");
+                eprintln!("   {} {}: {}", pad_to_width("❌", 2), entry, e);
             }
             _ => {}
         }
@@ -229,26 +269,26 @@ impl ProgressReporter for SimpleReporter {
                 self.stats.write().unwrap().upload_count += 1;
             }
             UploadStatus::Failed(ref e) => {
-                eprintln!("       [FAIL] upload {object_key}: {e}");
+                eprintln!("   {} upload {}: {}", pad_to_width("❌", 2), object_key, e);
             }
             _ => {}
         }
     }
 
     fn add_entry_warning(&self, entry: &str, message: &str) {
-        eprintln!("       [WARN] {entry}: {message}");
+        eprintln!("   {} {}: {}", pad_to_width("⚠️", 2), entry, message);
     }
 
     fn log_info(&self, message: &str) {
-        eprintln!("[info] {message}");
+        eprintln!("{} {}", pad_to_width("ℹ️", 2), message);
     }
 
     fn log_warn(&self, message: &str) {
-        eprintln!("[WARN] {message}");
+        eprintln!("{} {}", pad_to_width("⚠️", 2), message);
     }
 
     fn log_error(&self, message: &str) {
-        eprintln!("[ERR!] {message}");
+        eprintln!("{} {}", pad_to_width("❌", 2), message);
     }
 
     fn finish(&self) {
@@ -318,17 +358,37 @@ impl FancyReporter {
         let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
 
         eprintln!();
-        eprintln!("========================================");
-        eprintln!("   Entries:    {} total", stats.total_entries);
-        eprintln!("   Successful: {}", stats.successful_entries);
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        eprintln!(
+            "   {} Entries:    {} total",
+            pad_to_width("📄", 2),
+            stats.total_entries
+        );
+        eprintln!(
+            "   {} Successful: {}",
+            pad_to_width("✅", 2),
+            stats.successful_entries
+        );
         if stats.failed_entries > 0 {
-            eprintln!("   Failed:     {}", stats.failed_entries);
+            eprintln!(
+                "   {} Failed:     {}",
+                pad_to_width("❌", 2),
+                stats.failed_entries
+            );
         }
         if stats.upload_count > 0 {
-            eprintln!("   Uploads:    {}", stats.upload_count);
+            eprintln!(
+                "   {} Uploads:    {}",
+                pad_to_width("⬆️", 2),
+                stats.upload_count
+            );
         }
-        eprintln!("   Duration:   {:.2}s", duration.as_secs_f64());
-        eprintln!("========================================");
+        eprintln!(
+            "   {} Duration:   {:.2}s",
+            pad_to_width("⏱️", 2),
+            duration.as_secs_f64()
+        );
+        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
     fn status_detail(status: &EntryStatus) -> &'static str {
@@ -357,17 +417,15 @@ impl FancyReporter {
     /// Print a completed entry with its tree of uploads and warnings
     fn print_entry_tree(&self, entry: &str, info: &EntryInfo, is_last: bool) {
         let status_icon = match &info.status {
-            Some(EntryStatus::Done) => "[ OK ]",
-            Some(EntryStatus::Failed(_)) => "[FAIL]",
-            _ => "[....]",
+            Some(EntryStatus::Done) => pad_to_width("✅", 2),
+            Some(EntryStatus::Failed(_)) => pad_to_width("❌", 2),
+            _ => pad_to_width("📄", 2),
         };
 
-        let entry_prefix = if is_last { "`--" } else { "|--" };
-        let branch = if is_last { "    " } else { "|   " };
+        let entry_prefix = if is_last { "└──" } else { "├──" };
+        let branch = if is_last { "    " } else { "│   " };
 
-        self.multi
-            .println(format!("{entry_prefix} {status_icon} {entry}"))
-            .ok();
+        eprintln!("{} {} {}", entry_prefix, status_icon, entry);
 
         let total_children = info.warnings.len() + info.uploads.len();
         let mut child_idx = 0;
@@ -376,29 +434,73 @@ impl FancyReporter {
         for warning in &info.warnings {
             child_idx += 1;
             let is_last_child = child_idx == total_children;
-            let child_prefix = if is_last_child { "`--" } else { "|--" };
-            self.multi
-                .println(format!("{branch}{child_prefix} [WARN] {warning}"))
-                .ok();
+            let child_prefix = if is_last_child {
+                "└──"
+            } else {
+                "├──"
+            };
+            eprintln!(
+                "{}{} {} {}",
+                branch,
+                child_prefix,
+                pad_to_width("⚠️", 2),
+                warning
+            );
         }
 
         // Print uploads with status
         for upload in &info.uploads {
             child_idx += 1;
             let is_last_child = child_idx == total_children;
-            let child_prefix = if is_last_child { "`--" } else { "|--" };
-            let status_suffix = match &upload.status {
-                UploadStatus::Uploaded => " (new)",
-                UploadStatus::Skipped => " (skip)",
-                UploadStatus::Uploading => " (uploading...)",
-                UploadStatus::Failed(e) => &format!(" (failed: {e})"),
+            let child_prefix = if is_last_child {
+                "└──"
+            } else {
+                "├──"
             };
-            self.multi
-                .println(format!(
-                    "{branch}{child_prefix} [obj] {}{status_suffix}",
-                    upload.key
-                ))
-                .ok();
+            match &upload.status {
+                UploadStatus::Uploaded => {
+                    eprintln!(
+                        "{}{} {} {}",
+                        branch,
+                        child_prefix,
+                        pad_to_width("⬆️", 2),
+                        upload.key
+                    );
+                }
+                UploadStatus::Skipped => {
+                    // Dim style for skipped uploads
+                    let style = console::Style::new().dim();
+                    eprintln!(
+                        "{}",
+                        style.apply_to(format!(
+                            "{}{} {} {}",
+                            branch,
+                            child_prefix,
+                            pad_to_width("⏭️", 2),
+                            upload.key
+                        ))
+                    );
+                }
+                UploadStatus::Uploading => {
+                    eprintln!(
+                        "{}{} {} {}",
+                        branch,
+                        child_prefix,
+                        pad_to_width("⏳", 2),
+                        upload.key
+                    );
+                }
+                UploadStatus::Failed(e) => {
+                    eprintln!(
+                        "{}{} {} {} ({})",
+                        branch,
+                        child_prefix,
+                        pad_to_width("❌", 2),
+                        upload.key,
+                        e
+                    );
+                }
+            }
         }
     }
 }
@@ -412,15 +514,25 @@ impl Default for FancyReporter {
 impl ProgressReporter for FancyReporter {
     fn set_phase(&self, phase: BatchPhase) {
         let msg = match phase {
-            BatchPhase::LoadingConfig => "[....] Loading configuration...",
-            BatchPhase::CompilingSchema => "[....] Compiling schema...",
-            BatchPhase::ProcessingDocuments => "[....] Processing documents...",
-            BatchPhase::UploadingStorage => "[....] Uploading to storage...",
-            BatchPhase::SyncingDatabase => "[....] Syncing database...",
-            BatchPhase::CleaningUp => "[....] Cleaning up old objects...",
-            BatchPhase::Completed => "[ OK ] Completed!",
+            BatchPhase::LoadingConfig => {
+                format!("{} Loading configuration...", pad_to_width("📋", 2))
+            }
+            BatchPhase::CompilingSchema => format!("{} Compiling schema...", pad_to_width("🔧", 2)),
+            BatchPhase::ProcessingDocuments => {
+                format!("{} Processing documents...", pad_to_width("📄", 2))
+            }
+            BatchPhase::UploadingStorage => {
+                format!("{} Uploading to storage...", pad_to_width("⬆️", 2))
+            }
+            BatchPhase::SyncingDatabase => format!("{} Syncing database...", pad_to_width("🗄️", 2)),
+            BatchPhase::CleaningUp => {
+                format!("{} Cleaning up old objects...", pad_to_width("🧹", 2))
+            }
+            BatchPhase::Completed => format!("{} Completed!", pad_to_width("✅", 2)),
             BatchPhase::Failed(ref e) => {
-                self.multi.println(format!("[FAIL] Failed: {e}")).ok();
+                self.multi
+                    .println(format!("{} Failed: {e}", pad_to_width("❌", 2)))
+                    .ok();
                 return;
             }
         };
@@ -469,9 +581,9 @@ impl ProgressReporter for FancyReporter {
         let detail = Self::status_detail(&status);
 
         if let Some(pb) = active.get(entry) {
-            pb.set_message(format!("{entry}: {detail}"));
+            pb.set_message(format!("{}: {}", entry, detail));
         } else {
-            let pb = self.create_spinner(format!("{entry}: {detail}"));
+            let pb = self.create_spinner(format!("{}: {}", entry, detail));
             active.insert(entry.to_string(), pb);
         }
     }
@@ -527,9 +639,9 @@ impl ProgressReporter for FancyReporter {
         // For uploading state, create or update spinner
         let mut active = self.active_uploads.write().unwrap();
         if let Some(pb) = active.get(object_key) {
-            pb.set_message(format!("[obj] {object_key}"));
+            pb.set_message(format!("{} {}", pad_to_width("⏳", 2), object_key));
         } else {
-            let pb = self.create_spinner(format!("[obj] {object_key}"));
+            let pb = self.create_spinner(format!("{} {}", pad_to_width("⏳", 2), object_key));
             active.insert(object_key.to_string(), pb);
         }
     }
@@ -542,15 +654,21 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn log_info(&self, message: &str) {
-        self.multi.println(format!("[info] {message}")).ok();
+        self.multi
+            .println(format!("{} {}", pad_to_width("ℹ️", 2), message))
+            .ok();
     }
 
     fn log_warn(&self, message: &str) {
-        self.multi.println(format!("[WARN] {message}")).ok();
+        self.multi
+            .println(format!("{} {}", pad_to_width("⚠️", 2), message))
+            .ok();
     }
 
     fn log_error(&self, message: &str) {
-        self.multi.println(format!("[ERR!] {message}")).ok();
+        self.multi
+            .println(format!("{} {}", pad_to_width("❌", 2), message))
+            .ok();
     }
 
     fn finish(&self) {
@@ -578,8 +696,8 @@ impl ProgressReporter for FancyReporter {
             .collect();
 
         if !entries_with_content.is_empty() {
-            self.multi.println("").ok();
-            self.multi.println("Results:").ok();
+            eprintln!();
+            eprintln!("{} Results:", pad_to_width("📊", 2));
 
             for (i, (entry, info)) in entries_with_content.iter().enumerate() {
                 let is_last = i == entries_with_content.len() - 1;
