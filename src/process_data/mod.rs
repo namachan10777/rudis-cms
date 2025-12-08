@@ -92,6 +92,17 @@ pub enum StoragePointer {
     Inline { content: String, base64: bool },
 }
 
+impl std::fmt::Display for StoragePointer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoragePointer::R2 { bucket, key } => write!(f, "r2://{bucket}/{key}"),
+            StoragePointer::Asset { path } => write!(f, "asset://{}", path.display()),
+            StoragePointer::Kv { namespace, key } => write!(f, "kv://{namespace}/{key}"),
+            StoragePointer::Inline { .. } => write!(f, "inline://..."),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub enum StorageContent {
     Text(String),

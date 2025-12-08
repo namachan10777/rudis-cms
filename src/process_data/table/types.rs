@@ -42,6 +42,7 @@ pub enum FieldValue {
 }
 
 /// An upload to be sent to storage.
+#[derive(Clone)]
 pub struct Upload {
     pub data: StorageContent,
     pub hash: blake3::Hash,

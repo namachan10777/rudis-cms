@@ -4,7 +4,9 @@ use std::sync::Arc;
 use clap::Parser;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
-use rudis_cms::progress::{BatchPhase, EntryStatus, ProgressReporter, create_reporter};
+use rudis_cms::progress::{
+    BatchPhase, EntryStatus, ProgressReporter, UploadStatus, create_reporter,
+};
 use rudis_cms::{config, deploy, job, schema};
 
 #[derive(clap::Subcommand)]
@@ -142,12 +144,23 @@ async fn run_batch(
     }
 
     reporter.set_phase(BatchPhase::UploadingStorage);
-    let upload_count = uploads.len();
-    reporter.set_upload_progress(0, upload_count);
+
+    // Register all uploads (without entry association for now)
+    for upload in &uploads {
+        let key = upload.pointer.to_string();
+        reporter.register_upload("_global", &key);
+        reporter.update_upload(&key, UploadStatus::Uploading);
+    }
 
     executor
-        .batch(&compiled_schema, &tables, uploads, force)
+        .batch(&compiled_schema, &tables, uploads.clone(), force)
         .await?;
+
+    // Mark all uploads as done
+    for upload in &uploads {
+        let key = upload.pointer.to_string();
+        reporter.update_upload(&key, UploadStatus::Done);
+    }
 
     reporter.set_phase(BatchPhase::Completed);
     reporter.finish();
@@ -241,12 +254,23 @@ async fn run_dump(
     executor.drop_all_table_for_dump(&compiled_schema).await?;
 
     reporter.set_phase(BatchPhase::UploadingStorage);
-    let upload_count = uploads.len();
-    reporter.set_upload_progress(0, upload_count);
+
+    // Register all uploads (without entry association for now)
+    for upload in &uploads {
+        let key = upload.pointer.to_string();
+        reporter.register_upload("_global", &key);
+        reporter.update_upload(&key, UploadStatus::Uploading);
+    }
 
     executor
-        .batch(&compiled_schema, &tables, uploads, true)
+        .batch(&compiled_schema, &tables, uploads.clone(), true)
         .await?;
+
+    // Mark all uploads as done
+    for upload in &uploads {
+        let key = upload.pointer.to_string();
+        reporter.update_upload(&key, UploadStatus::Done);
+    }
 
     reporter.set_phase(BatchPhase::Completed);
     reporter.finish();
