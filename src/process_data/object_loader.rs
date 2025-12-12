@@ -274,11 +274,17 @@ pub async fn load_image(src: &str, document_path: Option<&Path>) -> Result<Image
                     error,
                 })?
                 .size();
-            let tree =
-                roxmltree::Document::parse(src).map_err(|error| ImageLoadError::ParseXml {
-                    error,
-                    origin: src.to_string(),
-                })?;
+            let tree = roxmltree::Document::parse_with_options(
+                src,
+                roxmltree::ParsingOptions {
+                    allow_dtd: true,
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| ImageLoadError::ParseXml {
+                error,
+                origin: src.to_string(),
+            })?;
             let tree = build_svg_tree(tree.root());
             Ok(Image {
                 body: ImageContent::Vector {
