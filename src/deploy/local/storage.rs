@@ -1,7 +1,7 @@
 use std::str::FromStr as _;
 
-use image::EncodableLayout;
 use crate::job;
+use image::EncodableLayout;
 
 pub struct LocalStorage {
     pool: sqlx::SqlitePool,

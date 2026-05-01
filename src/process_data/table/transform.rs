@@ -5,8 +5,6 @@
 
 use std::pin::Pin;
 
-use futures::future::try_join_all;
-use indexmap::{IndexMap, indexmap};
 use crate::{
     Error, ErrorDetail, config,
     process_data::{
@@ -15,6 +13,8 @@ use crate::{
     },
     schema,
 };
+use futures::future::try_join_all;
+use indexmap::{IndexMap, indexmap};
 
 use super::{
     context::RecordContext,
@@ -253,22 +253,20 @@ pub async fn process_markdown_field(
         image_rows: image_uploader
             .queue
             .into_iter()
-            .map(|(reference, data)| {
-                RowNode {
-                    id: ctx.id(&reference.meta.derived_id),
+            .map(|(reference, data)| RowNode {
+                id: ctx.id(&reference.meta.derived_id),
+                hash: reference.hash,
+                fields: indexmap! {
+                    "image".to_string() => ColumnValue::Image(reference.clone())
+                },
+                records: Default::default(),
+                uploads: vec![Upload {
+                    data: StorageContent::Bytes(data),
                     hash: reference.hash,
-                    fields: indexmap! {
-                        "image".to_string() => ColumnValue::Image(reference.clone())
-                    },
-                    records: Default::default(),
-                    uploads: vec![Upload {
-                        data: StorageContent::Bytes(data),
-                        hash: reference.hash,
-                        pointer: reference.pointer,
-                        content_type: reference.content_type,
-                        source_entry: None,
-                    }],
-                }
+                    pointer: reference.pointer,
+                    content_type: reference.content_type,
+                    source_entry: None,
+                }],
             })
             .collect(),
         storage: storage.clone(),

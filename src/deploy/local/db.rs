@@ -55,9 +55,6 @@ impl job::storage::sqlite::Client for Client {
             sqlx::query_as::<sqlx::Sqlite, R>(statement),
             |query, param| query.bind(param),
         );
-        query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Error::Sqlite)
+        query.fetch_all(&self.pool).await.map_err(Error::Sqlite)
     }
 }
