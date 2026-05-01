@@ -31,7 +31,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: integration-test/.rudis
-          key: ${{ runner.os }}-syntax-definition-${{ hashFiles('Cargo.lock', 'src/process_data/markdown/resolver/codeblock/syntax/*.sublime-syntax') }}
+          key: ${{ runner.os }}-syntax-definition-${{ hashFiles('src/process_data/markdown/resolver/codeblock/syntax/*.sublime-syntax') }}
           restore-keys: |
             ${{ runner.os }}-syntax-definition-
 
