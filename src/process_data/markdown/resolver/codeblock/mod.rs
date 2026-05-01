@@ -38,19 +38,8 @@ struct StackRow<E> {
     classes: String,
 }
 
-fn scope_to_classes(scope: syntect::parsing::Scope, prefix: Option<&str>) -> String {
-    let scope_str = scope.to_string();
-    let mut s = String::new();
-    for (i, atom_s) in scope_str.split('.').enumerate() {
-        if i != 0 {
-            s.push(' ');
-        }
-        if let Some(prefix) = prefix {
-            s.push_str(prefix);
-        }
-        s.push_str(atom_s);
-    }
-    s
+fn scope_to_classes(scope: syntect::parsing::Scope) -> String {
+    scope.to_string().replace('.', " ")
 }
 
 pub fn highlight_impl<S: AsRef<str>, E>(
@@ -89,7 +78,7 @@ pub fn highlight_impl<S: AsRef<str>, E>(
                 BasicScopeStackOp::Push(scope) => {
                     stack.push(StackRow {
                         leafs: Vec::new(),
-                        classes: scope_to_classes(scope, None),
+                        classes: scope_to_classes(scope),
                     });
                 }
                 BasicScopeStackOp::Pop => {
