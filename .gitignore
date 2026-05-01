@@ -8,3 +8,4 @@
 *.sqlite-shm
 *.sqlite-wal
 /generated
+.DS_Store
