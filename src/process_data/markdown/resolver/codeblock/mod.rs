@@ -39,19 +39,14 @@ struct StackRow<E> {
 }
 
 fn scope_to_classes(scope: syntect::parsing::Scope, prefix: Option<&str>) -> String {
+    let scope_str = scope.to_string();
     let mut s = String::new();
-    let repo = syntect::parsing::SCOPE_REPO.lock().unwrap();
-    for i in 0..(scope.len()) {
-        let atom = scope.atom_at(i as usize);
-        let atom_s = repo.atom_str(atom);
+    for (i, atom_s) in scope_str.split('.').enumerate() {
         if i != 0 {
-            s.push(' ')
+            s.push(' ');
         }
-        match prefix {
-            None => {}
-            Some(prefix) => {
-                s.push_str(prefix);
-            }
+        if let Some(prefix) = prefix {
+            s.push_str(prefix);
         }
         s.push_str(atom_s);
     }
