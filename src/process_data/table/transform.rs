@@ -7,9 +7,6 @@ use std::pin::Pin;
 
 use futures::future::try_join_all;
 use indexmap::{IndexMap, indexmap};
-use tracing::{debug, trace};
-use valuable::Valuable;
-
 use crate::{
     Error, ErrorDetail, config,
     process_data::{
@@ -248,12 +245,6 @@ pub async fn process_markdown_field(
         hasher.update(hash.as_bytes());
     });
 
-    trace!(
-        table = image.table,
-        prefix = ctx.compound_id_prefix.as_value(),
-        id = id.as_value(),
-        "enter markdown image table"
-    );
     let ctx = ctx.clone().nest(&image.table, id.clone())?;
 
     let value = FieldValue::Markdown {
@@ -263,11 +254,6 @@ pub async fn process_markdown_field(
             .queue
             .into_iter()
             .map(|(reference, data)| {
-                debug!(
-                    markdown_id = id.as_value(),
-                    id = ctx.id(&reference.meta.derived_id).as_value(),
-                    "markdown image"
-                );
                 RowNode {
                     id: ctx.id(&reference.meta.derived_id),
                     hash: reference.hash,

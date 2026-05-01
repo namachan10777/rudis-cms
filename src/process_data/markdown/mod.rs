@@ -2,7 +2,6 @@ use std::hash::Hash;
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 use valuable::Valuable;
 
 pub mod compress;
@@ -58,7 +57,6 @@ pub(crate) fn raw_to_expanded<E>(src: &str) -> Vec<Node<E>> {
             .map(|element| element.into())
             .collect(),
         Err(e) => {
-            warn!(%e, "failed to parse html");
             crate::warn_entry!("failed to parse html: {e}");
             vec![Node::Text(src.to_string())]
         }
