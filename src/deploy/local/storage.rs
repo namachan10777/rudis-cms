@@ -1,8 +1,6 @@
 use std::str::FromStr as _;
 
 use image::EncodableLayout;
-use tracing::error;
-
 use crate::job;
 
 pub struct LocalStorage {
@@ -23,13 +21,11 @@ pub struct AssetClient {
 
 impl LocalStorage {
     pub async fn open(url: &str) -> Result<Self, sqlx::Error> {
-        let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)
-            .inspect_err(|error| error!(%error, %url, "Failed to open local storage db"))?;
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)?;
         let pool = sqlx::pool::PoolOptions::new()
             .max_connections(1)
             .connect_with(options)
-            .await
-            .inspect_err(|error| error!(%error, %url, "Failed to open local storage db"))?;
+            .await?;
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS r2(
@@ -57,8 +53,7 @@ impl LocalStorage {
         "#,
         )
         .execute(&pool)
-        .await
-        .inspect_err(|error| error!(%error, %url, "Failed to execute DDL to storage db"))?;
+        .await?;
         Ok(Self { pool })
     }
 

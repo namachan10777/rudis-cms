@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use futures::future::join_all;
 use indexmap::IndexMap;
-use tracing::warn;
 use url::Url;
 
 use crate::process_data::{
@@ -191,7 +190,6 @@ impl<'s> LinkCardExtractor<'s> {
             let card = resolve_link_card(link)
                 .await
                 .inspect_err(|e| {
-                    warn!(%e, "failed to resolve isolated link");
                     crate::warn_entry!("failed to resolve link card: {link}: {e}");
                 })
                 .ok()?;
