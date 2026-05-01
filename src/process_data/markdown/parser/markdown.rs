@@ -4,7 +4,6 @@ use indexmap::{IndexMap, indexmap};
 use pulldown_cmark::{
     Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Tag, TagEnd,
 };
-use tracing::warn;
 
 use super::super::raw_to_expanded;
 use super::{AlertKind, AttrValue, KeepRaw, Name, Node, meta_parser::CodeblockMeta};
@@ -573,7 +572,6 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
                     children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
-                    warn!(%e, "failed to parse katex math");
                     crate::warn_entry!("failed to parse katex display math: {e}");
                     Node::Lazy {
                         keep: KeepRaw::Codeblock {
@@ -595,7 +593,6 @@ fn parse_element<'src>(parser: &mut ParserImpl<'src>) -> MaybeMany<Node<KeepRaw>
                     children: raw_to_expanded(&katex),
                 },
                 Err(e) => {
-                    warn!(%e, "failed to parse katex math");
                     crate::warn_entry!("failed to parse katex inline math: {e}");
                     Node::Eager {
                         tag: "span".into(),

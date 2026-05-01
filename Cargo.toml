@@ -21,7 +21,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 syntect = "5"
 thiserror = "2"
-tracing = { version = "0.1.41", features = ["valuable", "async-await"] }
 usvg = "0.47"
 valuable = { version = "0.1", features = ["derive"] }
 winnow = "1"
