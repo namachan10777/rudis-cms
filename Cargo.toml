@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3.19", features = [
     "valuable",
     "env-filter",
 ] }
-usvg = "0.45"
+usvg = "0.47"
 valuable = { version = "0.1.1", features = ["derive"] }
 winnow = "0.7"
 maplit = "1"
