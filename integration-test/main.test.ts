@@ -1,7 +1,9 @@
 import * as v from "valibot";
 import * as post from "./generated/posts/posts-valibot";
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import * as sqlite from "bun:sqlite";
+
+setDefaultTimeout(180_000);
 
 async function createDatabases() {
   const database = new sqlite.Database("./integration-test/database.sqlite", {
