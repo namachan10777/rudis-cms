@@ -28,7 +28,7 @@ jobs:
 
       - name: Restore syntax cache
         id: syntax-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: integration-test/.rudis
           key: ${{ runner.os }}-syntax-definition-${{ hashFiles('src/process_data/markdown/resolver/codeblock/syntax/*.sublime-syntax') }}
@@ -61,7 +61,7 @@ jobs:
 
       - name: Save syntax cache
         if: always() && steps.syntax-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: integration-test/.rudis
           key: ${{ steps.syntax-cache.outputs.cache-primary-key }}
