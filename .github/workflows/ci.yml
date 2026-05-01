@@ -27,10 +27,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Restore syntax cache
-        uses: actions/cache@v4
+        id: syntax-cache
+        uses: actions/cache/restore@v4
         with:
           path: integration-test/.rudis
-          key: ${{ runner.os }}-syntax-definition
+          key: ${{ runner.os }}-syntax-definition-${{ hashFiles('Cargo.lock', 'src/process_data/markdown/resolver/codeblock/syntax/*.sublime-syntax') }}
+          restore-keys: |
+            ${{ runner.os }}-syntax-definition-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -55,3 +58,10 @@ jobs:
 
       - name: Integration test
         run: bun test
+
+      - name: Save syntax cache
+        if: always() && steps.syntax-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: integration-test/.rudis
+          key: ${{ steps.syntax-cache.outputs.cache-primary-key }}
