@@ -5,15 +5,15 @@
 
 use std::{collections::HashSet, str::FromStr as _};
 
+use crate::{
+    process_data::{self, StorageContent, StoragePointer},
+    schema::CollectionSchema,
+};
 use futures::{future::try_join_all, join};
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde_with::{json::JsonString, serde_as};
 use sqlx::FromRow;
-use crate::{
-    process_data::{self, StorageContent, StoragePointer},
-    schema::CollectionSchema,
-};
 
 use super::{
     filter::{disappeared_objects, filter_uploads},
@@ -253,9 +253,7 @@ impl<
         self.create_tables_if_not_exist(schema)
             .await
             .map_err(JobError::Database)?;
-        let present_objects = self
-            .fetch_objects_metadata(schema)
-            .await?;
+        let present_objects = self.fetch_objects_metadata(schema).await?;
         let delete_mask = uploads
             .iter()
             .map(|upload| &upload.pointer)
@@ -278,9 +276,7 @@ impl<
             .await
             .map_err(JobError::Database)?;
 
-        let appeared_objects = self
-            .fetch_objects_metadata(schema)
-            .await?;
+        let appeared_objects = self.fetch_objects_metadata(schema).await?;
         let deletions = disappeared_objects(present_objects, &appeared_objects, &delete_mask);
         let (r2, kv, asset) = multiplex_delete(deletions);
         let (delete_objstore, delete_kv, delete_asset) = join!(
