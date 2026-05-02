@@ -2,7 +2,7 @@
 //! in-flight work via `indicatif` and prints a tree summary on `finish()`.
 
 use std::collections::HashMap;
-use std::io::stderr;
+use std::io::{Write, stderr};
 use std::sync::Mutex;
 
 use super::{
@@ -216,6 +216,13 @@ impl ProgressReporter for FancyReporter {
 
         let state = self.state.lock();
         let mut out = stderr().lock();
+        let has_entry_content = state.entries.values().any(|info| {
+            !info.uploads.is_empty() || !info.warnings.is_empty() || info.status.is_some()
+        });
+        if has_entry_content {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{} Results:", pad_to_width("📊", 2));
+        }
         write_entries_tree(&mut out, &state);
         write_summary(&mut out, &state);
     }
