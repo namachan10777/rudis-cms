@@ -9,3 +9,4 @@
 *.sqlite-wal
 /generated
 .DS_Store
+/.rudis
