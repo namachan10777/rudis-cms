@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use super::{
     BatchPhase, EntryStatus, ProgressReporter, UploadStatus,
     format::{pad_to_width, write_entries_tree, write_summary},
-    state::{EntryInfo, StateLock, UploadInfo},
+    state::StateLock,
 };
 
 pub struct FancyReporter {
@@ -99,11 +99,7 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn register_entries(&self, entries: Vec<String>) {
-        let mut state = self.state.lock();
-        state.stats.total_entries = entries.len();
-        for entry in entries {
-            state.entries.insert(entry, EntryInfo::default());
-        }
+        self.state.lock().register_entries(entries);
     }
 
     fn update_entry(&self, entry: &str, status: EntryStatus) {
@@ -111,15 +107,7 @@ impl ProgressReporter for FancyReporter {
             if let Some(pb) = self.lock_active_entries().remove(entry) {
                 pb.finish_and_clear();
             }
-            let mut state = self.state.lock();
-            if let Some(info) = state.entries.get_mut(entry) {
-                info.status = Some(status.clone());
-            }
-            match status {
-                EntryStatus::Done => state.stats.successful_entries += 1,
-                EntryStatus::Failed(_) => state.stats.failed_entries += 1,
-                _ => {}
-            }
+            self.state.lock().update_entry(entry, status);
             return;
         }
 
@@ -134,34 +122,11 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn register_upload(&self, entry: &str, object_key: &str) {
-        let mut state = self.state.lock();
-        let info = state
-            .entries
-            .entry(entry.to_string())
-            .or_default();
-        info.uploads.push(UploadInfo {
-            key: object_key.to_string(),
-            status: UploadStatus::Uploading,
-        });
-        state
-            .object_to_entry
-            .insert(object_key.to_string(), entry.to_string());
+        self.state.lock().register_upload(entry, object_key);
     }
 
     fn update_upload(&self, object_key: &str, status: UploadStatus) {
-        {
-            let mut state = self.state.lock();
-            if let Some(entry) = state.object_to_entry.get(object_key).cloned()
-                && let Some(info) = state.entries.get_mut(&entry)
-                && let Some(upload) = info.uploads.iter_mut().find(|u| u.key == object_key)
-            {
-                upload.status = status.clone();
-            }
-            if matches!(status, UploadStatus::Uploaded | UploadStatus::Skipped) {
-                state.stats.upload_count += 1;
-            }
-        }
-
+        let status = self.state.lock().update_upload(object_key, status);
         if matches!(
             status,
             UploadStatus::Uploaded | UploadStatus::Skipped | UploadStatus::Failed(_)
@@ -182,10 +147,7 @@ impl ProgressReporter for FancyReporter {
     }
 
     fn add_entry_warning(&self, entry: &str, message: &str) {
-        let mut state = self.state.lock();
-        if let Some(info) = state.entries.get_mut(entry) {
-            info.warnings.push(message.to_string());
-        }
+        self.state.lock().add_entry_warning(entry, message);
     }
 
     fn log_info(&self, message: &str) {

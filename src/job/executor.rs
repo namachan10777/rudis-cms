@@ -137,12 +137,13 @@ impl<
                 .or_default()
                 .push(pair);
         }
-        for (namespace, pairs) in namespaces {
+        let tasks = namespaces.into_iter().map(|(namespace, pairs)| async move {
             self.kv
                 .put_batch(&namespace, &pairs)
                 .await
-                .with_context(|| format!("KV put_batch namespace={namespace}"))?;
-        }
+                .with_context(|| format!("KV put_batch namespace={namespace}"))
+        });
+        try_join_all(tasks).await?;
         Ok(())
     }
 
