@@ -56,7 +56,7 @@ struct ResponseResult {
 
 impl kv::Client for Client {
     type Error = Error;
-    async fn write_multiple(&self, namespace: &str, pairs: &[kv::Pair]) -> Result<(), Self::Error> {
+    async fn put_batch(&self, namespace: &str, pairs: &[kv::Pair]) -> Result<(), Self::Error> {
         let endpoint = format!(
             "https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk",
             self.account_id,
@@ -100,7 +100,7 @@ impl kv::Client for Client {
         Ok(())
     }
 
-    async fn delete_multiple(&self, namespace: &str, keys: &[String]) -> Result<(), Self::Error> {
+    async fn delete_batch(&self, namespace: &str, keys: &[String]) -> Result<(), Self::Error> {
         let endpoint = format!(
             "https://api.cloudflare.com/client/v4/accounts/{}/storage/kv/namespaces/{namespace}/bulk/delete",
             self.account_id,

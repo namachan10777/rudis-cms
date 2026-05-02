@@ -6,10 +6,10 @@
 use std::pin::Pin;
 
 use crate::{
-    Error, ErrorDetail, config,
+    config,
     process_data::{
-        ColumnValue, CompoundId, ImageReferenceMeta, ObjectReference, StorageContent,
-        StorageContentRef, markdown, object_loader,
+        ColumnValue, CompoundId, Error, ErrorDetail, ImageReferenceMeta, ObjectReference,
+        StorageContent, StorageContentRef, markdown, object_loader,
     },
     schema,
 };
@@ -18,6 +18,7 @@ use indexmap::{IndexMap, indexmap};
 
 use super::{
     context::RecordContext,
+    markdown_uploader::MarkdownImageUploader,
     types::{FieldValue, Records, RowNode, Upload},
     validate::{
         is_normal_required_field, process_boolean_field, process_date_field,
@@ -178,35 +179,6 @@ pub async fn process_file_field(
     })
 }
 
-struct MarkdownImageUploader<'a> {
-    storage: &'a config::Storage,
-    queue: crossbeam::queue::SegQueue<(ObjectReference<ImageReferenceMeta>, Vec<u8>)>,
-    id: &'a CompoundId,
-}
-
-impl<'a> markdown::resolver::ImageUploadRegisterer for MarkdownImageUploader<'a> {
-    fn register(&self, image: object_loader::Image) -> ObjectReference<ImageReferenceMeta> {
-        let (width, height) = image.body.dimensions();
-        let meta = ImageReferenceMeta {
-            width,
-            height,
-            derived_id: image.derived_id.clone(),
-            blurhash: None, // TODO
-        };
-        let reference = ObjectReference::build(
-            StorageContentRef::Bytes(&image.original),
-            self.id,
-            image.content_type,
-            meta,
-            self.storage,
-            Some(image.derived_id),
-        );
-        self.queue
-            .push((reference.clone(), image.original.into_vec()));
-        reference
-    }
-}
-
 /// Process a markdown field.
 pub async fn process_markdown_field(
     ctx: &RecordContext,
@@ -227,11 +199,7 @@ pub async fn process_markdown_field(
         )
     };
     let document = markdown::parser::parse(&src);
-    let image_uploader = MarkdownImageUploader {
-        storage: &image.storage,
-        queue: Default::default(),
-        id,
-    };
+    let image_uploader = MarkdownImageUploader::new(&image.storage, id);
     let (document, hashes) = markdown::resolver::RichTextDocument::resolve(
         document,
         Some(&ctx.document_path),
@@ -349,7 +317,6 @@ async fn process_row_impl(
     mut raw_fields: serde_json::Map<String, serde_json::Value>,
 ) -> Result<RowNode, Error> {
     use super::parse::extract_id_value;
-    use super::serialize::Frontmatter;
 
     let schema = ctx.current_schema();
     let id = extract_id_value(&schema.id_name, &mut raw_fields)
@@ -433,22 +400,47 @@ async fn process_row_impl(
         fields.insert(hash_name.clone(), ColumnValue::Hash(hash));
     }
 
-    let frontmatter = Frontmatter {
-        fields: &fields,
-        records: &records,
-    };
-    let frontmatter = serde_json::to_value(&frontmatter).unwrap();
-    for (name, (document, storage)) in markdowns.into_iter() {
+    finalize_markdown_fields(&id, &mut fields, &records, &mut total_uploads, markdowns);
+
+    Ok(RowNode {
+        id,
+        fields,
+        hash: hasher.finalize(),
+        records,
+        uploads: total_uploads,
+    })
+}
+
+/// Serialise each non-Inline Markdown field with its frontmatter and append
+/// the resulting upload to `total_uploads`. Inline-storage fields are already
+/// resolved during the field loop and never reach this helper.
+fn finalize_markdown_fields(
+    id: &CompoundId,
+    fields: &mut IndexMap<String, ColumnValue>,
+    records: &IndexMap<String, Records>,
+    total_uploads: &mut Vec<Upload>,
+    markdowns: IndexMap<String, (markdown::compress::RichTextDocument, config::Storage)>,
+) {
+    use super::serialize::Frontmatter;
+
+    if markdowns.is_empty() {
+        return;
+    }
+
+    let frontmatter = serde_json::to_value(&Frontmatter { fields, records })
+        .expect("frontmatter must be serialisable");
+
+    for (name, (document, storage)) in markdowns {
         let content = serde_json::to_string(&serde_json::json!({
             "frontmatter": &frontmatter,
             "root": document.root,
             "footnotes": document.footnotes,
-            "sections": document.sections
+            "sections": document.sections,
         }))
-        .unwrap();
+        .expect("markdown document must be serialisable");
         let reference = ObjectReference::build(
             StorageContentRef::Text(&content),
-            &id,
+            id,
             "application/json".into(),
             (),
             &storage,
@@ -463,13 +455,6 @@ async fn process_row_impl(
             source_entry: None,
         });
     }
-    Ok(RowNode {
-        id,
-        fields,
-        hash: hasher.finalize(),
-        records,
-        uploads: total_uploads,
-    })
 }
 
 /// Process a row (wrapper for async recursion).

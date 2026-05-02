@@ -50,3 +50,73 @@ pub fn disappeared_objects<'a, T>(
         .filter(|(hash, pointer)| !appeared_objects.contains_key(hash) && !mask.contains(pointer))
         .map(|(_, pointer)| pointer)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process_data::table::Upload;
+    use crate::process_data::{StorageContent, StoragePointer};
+
+    fn upload(hash_byte: u8, key: &str) -> Upload {
+        let pointer = StoragePointer::Kv {
+            namespace: "ns".into(),
+            key: key.into(),
+        };
+        Upload {
+            data: StorageContent::Text(String::new()),
+            hash: blake3::Hash::from_bytes([hash_byte; 32]),
+            pointer,
+            content_type: "application/json".into(),
+            source_entry: None,
+        }
+    }
+
+    #[test]
+    fn partition_skips_present_objects() {
+        let mut present = IndexMap::new();
+        present.insert(blake3::Hash::from_bytes([1; 32]), ());
+        let uploads = vec![upload(1, "a"), upload(2, "b")];
+        let (to_upload, skipped) = partition_uploads(uploads, &present, false);
+        assert_eq!(to_upload.len(), 1);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(
+            to_upload[0].pointer,
+            StoragePointer::Kv {
+                namespace: "ns".into(),
+                key: "b".into()
+            }
+        );
+    }
+
+    #[test]
+    fn partition_force_keeps_everything() {
+        let mut present = IndexMap::new();
+        present.insert(blake3::Hash::from_bytes([1; 32]), ());
+        let uploads = vec![upload(1, "a"), upload(2, "b")];
+        let (to_upload, skipped) = partition_uploads(uploads, &present, true);
+        assert_eq!(to_upload.len(), 2);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn disappeared_excludes_masked_pointers() {
+        let mut present = IndexMap::new();
+        let p_keep = StoragePointer::Kv {
+            namespace: "ns".into(),
+            key: "still-used".into(),
+        };
+        let p_disappear = StoragePointer::Kv {
+            namespace: "ns".into(),
+            key: "gone".into(),
+        };
+        present.insert(blake3::Hash::from_bytes([1; 32]), p_keep.clone());
+        present.insert(blake3::Hash::from_bytes([2; 32]), p_disappear.clone());
+
+        let appeared: IndexMap<blake3::Hash, ()> = IndexMap::new();
+        let mut mask = HashSet::new();
+        mask.insert(p_keep.clone());
+
+        let result: Vec<_> = disappeared_objects(present, &appeared, &mask).collect();
+        assert_eq!(result, vec![p_disappear]);
+    }
+}

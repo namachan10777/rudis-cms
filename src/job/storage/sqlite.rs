@@ -1,19 +1,13 @@
-use serde::{Serialize, de::DeserializeOwned};
-
-pub trait Param: Serialize {}
-
-impl Param for &str {}
+use serde::de::DeserializeOwned;
 
 pub trait Client {
-    type Error;
+    type Error: super::BackendError;
 
-    fn query<
-        'q,
-        R: DeserializeOwned + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow> + Send + Unpin,
-        P: Param + sqlx::Encode<'q, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
-    >(
+    fn query<R>(
         &self,
-        statement: &'q str,
-        params: &'q [&'q P],
-    ) -> impl Future<Output = Result<Vec<R>, Self::Error>>;
+        statement: &str,
+        params: &[&str],
+    ) -> impl Future<Output = Result<Vec<R>, Self::Error>> + Send
+    where
+        R: DeserializeOwned + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow> + Send + Unpin;
 }

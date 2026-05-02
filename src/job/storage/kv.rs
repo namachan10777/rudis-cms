@@ -1,6 +1,8 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
+use crate::process_data::StorageContent;
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Pair {
     pub key: String,
@@ -11,94 +13,78 @@ pub struct Pair {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Default)]
-pub struct PairBuilder {
-    key: Option<String>,
-    value: Option<String>,
-    base64: bool,
-    expiration: Option<i64>,
-    expiration_ttl: Option<u64>,
-    metadata: Option<Result<serde_json::Value, serde_json::Error>>,
-}
-
 impl Pair {
-    pub fn builder() -> PairBuilder {
-        Default::default()
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PairBuildError {
-    #[error("Missing key")]
-    MissingKey,
-    #[error("Missing value")]
-    MissingValue,
-    #[error("Failed to encode metadata: {0}")]
-    EncodeMetadata(serde_json::Error),
-}
-
-impl PairBuilder {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn key(mut self, key: impl Into<String>) -> Self {
-        self.key = Some(key.into());
-        self
+    /// Build a `Pair` from a key and a `StorageContent`. Binary content is
+    /// base64-encoded automatically.
+    pub fn new(key: impl Into<String>, content: StorageContent) -> Self {
+        let (value, base64) = match content {
+            StorageContent::Text(text) => (text, false),
+            StorageContent::Bytes(bin) => {
+                (base64::engine::general_purpose::STANDARD.encode(&bin), true)
+            }
+        };
+        Self {
+            key: key.into(),
+            value,
+            base64,
+            expiration: None,
+            expiration_ttl: None,
+            metadata: None,
+        }
     }
 
-    pub fn string_value(mut self, value: impl Into<String>) -> Self {
-        self.value = Some(value.into());
-        self.base64 = false;
-        self
-    }
-
-    pub fn binary_value(mut self, value: &[u8]) -> Self {
-        self.value = Some(base64::engine::general_purpose::STANDARD.encode(value));
-        self.base64 = true;
-        self
-    }
-
-    pub fn expiration(mut self, expiration: chrono::DateTime<impl chrono::TimeZone>) -> Self {
+    pub fn with_expiration(mut self, expiration: chrono::DateTime<impl chrono::TimeZone>) -> Self {
         self.expiration = Some(expiration.timestamp());
         self
     }
 
-    pub fn expiration_ttl(mut self, ttl: std::time::Duration) -> Self {
+    pub fn with_expiration_ttl(mut self, ttl: std::time::Duration) -> Self {
         self.expiration_ttl = Some(ttl.as_secs());
         self
     }
 
-    pub fn metadata(mut self, metadata: impl serde::Serialize) -> PairBuilder {
-        self.metadata = Some(serde_json::to_value(&metadata));
-        self
-    }
-
-    pub fn build(self) -> Result<Pair, PairBuildError> {
-        Ok(Pair {
-            key: self.key.ok_or(PairBuildError::MissingKey)?,
-            value: self.value.ok_or(PairBuildError::MissingValue)?,
-            base64: self.base64,
-            expiration: self.expiration,
-            expiration_ttl: self.expiration_ttl,
-            metadata: self
-                .metadata
-                .transpose()
-                .map_err(PairBuildError::EncodeMetadata)?,
-        })
+    pub fn with_metadata(
+        mut self,
+        metadata: impl serde::Serialize,
+    ) -> Result<Self, serde_json::Error> {
+        self.metadata = Some(serde_json::to_value(&metadata)?);
+        Ok(self)
     }
 }
 
 pub trait Client {
-    type Error;
-    fn write_multiple(
+    type Error: super::BackendError;
+    fn put_batch(
         &self,
         namespace: &str,
         pairs: &[Pair],
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-    fn delete_multiple(
+    fn delete_batch(
         &self,
         namespace: &str,
         keys: &[String],
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pair_text_is_not_base64() {
+        let p = Pair::new("k", StorageContent::Text("hello".into()));
+        assert_eq!(p.key, "k");
+        assert_eq!(p.value, "hello");
+        assert!(!p.base64);
+    }
+
+    #[test]
+    fn pair_bytes_is_base64_encoded() {
+        let p = Pair::new("k", StorageContent::Bytes(b"\x00\xff\x10".to_vec()));
+        assert!(p.base64);
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&p.value)
+            .unwrap();
+        assert_eq!(decoded, b"\x00\xff\x10");
+    }
 }

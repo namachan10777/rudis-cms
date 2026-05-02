@@ -5,8 +5,10 @@
 
 use std::{collections::HashSet, str::FromStr as _};
 
+use anyhow::Context as _;
+
 use crate::{
-    process_data::{self, StorageContent, StoragePointer},
+    process_data::{self, StoragePointer},
     schema::CollectionSchema,
 };
 use futures::{future::try_join_all, join};
@@ -31,19 +33,6 @@ pub struct JobExecutor<D, K, R, A> {
     pub kv: K,
     pub r2: R,
     pub asset: A,
-}
-
-/// Error type for job execution.
-#[derive(Debug, thiserror::Error)]
-pub enum JobError<DE, KE, OE, AE> {
-    #[error("database: {0}")]
-    Database(DE),
-    #[error("kv: {0}")]
-    Kv(KE),
-    #[error("objstore: {0}")]
-    ObjectStorage(OE),
-    #[error("asset: {0}")]
-    Asset(AE),
 }
 
 fn deserialize_hash<'de, D>(deserializer: D) -> Result<blake3::Hash, D::Error>
@@ -82,10 +71,7 @@ impl<
     pub async fn fetch_objects_metadata(
         &self,
         schema: &CollectionSchema,
-    ) -> Result<
-        IndexMap<blake3::Hash, StoragePointer>,
-        JobError<D::Error, K::Error, O::Error, A::Error>,
-    > {
+    ) -> anyhow::Result<IndexMap<blake3::Hash, StoragePointer>> {
         #[derive(Deserialize)]
         struct B3Hash(#[serde(deserialize_with = "deserialize_hash")] blake3::Hash);
 
@@ -120,72 +106,62 @@ impl<
         }
         let objects = self
             .d1
-            .query::<Row, &str>(&sql::fetch_objects(schema), &[])
+            .query::<Row>(&sql::fetch_objects(schema), &[])
             .await
-            .map_err(JobError::Database)?
+            .context("fetching object metadata")?
             .into_iter()
             .map(|row| (row.hash.0, row.storage))
             .collect::<IndexMap<_, _>>();
         Ok(objects)
     }
 
-    async fn upload_objstore(
-        &self,
-        uploads: impl Iterator<Item = R2Upload>,
-    ) -> Result<(), O::Error> {
+    async fn upload_objstore(&self, uploads: impl Iterator<Item = R2Upload>) -> anyhow::Result<()> {
         let tasks = uploads.map(|upload| {
             self.r2.put(
                 upload.bucket,
                 upload.key,
                 upload.content_type,
-                upload.body.into_vec().into(),
+                bytes::Bytes::from(upload.body),
             )
         });
-        try_join_all(tasks).await?;
+        try_join_all(tasks).await.context("R2 upload")?;
         Ok(())
     }
 
-    async fn upload_kv(&self, uploads: impl Iterator<Item = KvUpload>) -> Result<(), K::Error> {
+    async fn upload_kv(&self, uploads: impl Iterator<Item = KvUpload>) -> anyhow::Result<()> {
         let mut namespaces = IndexMap::<_, Vec<_>>::new();
         for upload in uploads {
-            let pair = kv::Pair::builder().key(upload.key);
-            let pair = match upload.content {
-                StorageContent::Bytes(bin) => pair.binary_value(&bin),
-                StorageContent::Text(text) => pair.string_value(text),
-            };
+            let pair = kv::Pair::new(upload.key, upload.content);
             namespaces
                 .entry(upload.namespace.clone())
                 .or_default()
-                .push(pair.build().unwrap());
+                .push(pair);
         }
         for (namespace, pairs) in namespaces {
-            self.kv.write_multiple(&namespace, &pairs).await?;
+            self.kv
+                .put_batch(&namespace, &pairs)
+                .await
+                .with_context(|| format!("KV put_batch namespace={namespace}"))?;
         }
         Ok(())
     }
 
-    async fn upload_asset(
-        &self,
-        uploads: impl Iterator<Item = AssetUpload>,
-    ) -> Result<(), A::Error> {
+    async fn upload_asset(&self, uploads: impl Iterator<Item = AssetUpload>) -> anyhow::Result<()> {
         let tasks =
             uploads.map(|asset| async move { self.asset.put(&asset.path, &asset.body).await });
-        try_join_all(tasks).await?;
+        try_join_all(tasks).await.context("asset upload")?;
         Ok(())
     }
 
-    async fn delete_objstore(
-        &self,
-        deletes: impl Iterator<Item = R2Delete>,
-    ) -> Result<(), O::Error> {
+    async fn delete_objstore(&self, deletes: impl Iterator<Item = R2Delete>) -> anyhow::Result<()> {
         let tasks = deletes
             .into_iter()
             .map(|delete| self.r2.delete(delete.bucket, delete.key));
-        try_join_all(tasks).await?;
+        try_join_all(tasks).await.context("R2 delete")?;
         Ok(())
     }
 
-    async fn delete_kv(&self, deletes: impl Iterator<Item = KvDelete>) -> Result<(), K::Error> {
+    async fn delete_kv(&self, deletes: impl Iterator<Item = KvDelete>) -> anyhow::Result<()> {
         let mut namespaces = IndexMap::<_, Vec<_>>::new();
         for delete in deletes {
             namespaces
@@ -193,46 +169,81 @@ impl<
                 .or_default()
                 .push(delete.key);
         }
-        let tasks = namespaces.into_iter().map(|(namespace, keys)| async move {
-            self.kv.delete_multiple(&namespace, &keys).await
-        });
-        try_join_all(tasks).await?;
+        let tasks = namespaces
+            .into_iter()
+            .map(|(namespace, keys)| async move { self.kv.delete_batch(&namespace, &keys).await });
+        try_join_all(tasks).await.context("KV delete_batch")?;
         Ok(())
     }
 
-    async fn delete_asset(
-        &self,
-        assets: impl Iterator<Item = AssetDelete>,
-    ) -> Result<(), A::Error> {
+    async fn delete_asset(&self, assets: impl Iterator<Item = AssetDelete>) -> anyhow::Result<()> {
         let tasks = assets.map(|asset| async move { self.asset.delete(&asset.path).await });
-        try_join_all(tasks).await?;
+        try_join_all(tasks).await.context("asset delete")?;
         Ok(())
     }
 
-    async fn full_sync_db(
+    async fn prepare_tables(&self, schema: &CollectionSchema) -> anyhow::Result<()> {
+        self.d1
+            .query::<Ignore>(&sql::ddl(schema), &[])
+            .await
+            .context("creating tables")?;
+        Ok(())
+    }
+
+    async fn upload_all(
+        &self,
+        uploads: impl Iterator<Item = process_data::table::Upload>,
+    ) -> anyhow::Result<()> {
+        let (r2, kv, asset) = multiplex_upload(uploads);
+        let (upload_r2, upload_kv, upload_asset) = join!(
+            self.upload_objstore(r2.into_iter()),
+            self.upload_kv(kv.into_iter()),
+            self.upload_asset(asset.into_iter()),
+        );
+        upload_r2?;
+        upload_kv?;
+        upload_asset?;
+        Ok(())
+    }
+
+    async fn sync_db(
         &self,
         schema: &CollectionSchema,
         tables: &process_data::table::Tables,
-    ) -> Result<(), D::Error> {
+    ) -> anyhow::Result<()> {
         let param = serde_json::to_string(tables).expect("tables must be encodable");
-        for (table, schema) in &schema.tables {
+        for (table, table_schema) in &schema.tables {
             self.d1
-                .query::<Ignore, _>(&sql::upsert(table, schema), &[&param.as_str()])
-                .await?;
+                .query::<Ignore>(&sql::upsert(table, table_schema), &[param.as_str()])
+                .await
+                .with_context(|| format!("upserting table={table}"))?;
         }
-
-        for (table, schema) in &schema.tables {
+        for (table, table_schema) in &schema.tables {
             self.d1
-                .query::<Ignore, _>(&sql::cleanup(table, schema), &[&param.as_str()])
-                .await?;
+                .query::<Ignore>(&sql::cleanup(table, table_schema), &[param.as_str()])
+                .await
+                .with_context(|| format!("cleaning up table={table}"))?;
         }
         Ok(())
     }
 
-    async fn create_tables_if_not_exist(&self, schema: &CollectionSchema) -> Result<(), D::Error> {
-        self.d1
-            .query::<Ignore, &str>(&sql::ddl(schema), &[])
-            .await?;
+    async fn delete_disappeared(
+        &self,
+        present: IndexMap<blake3::Hash, StoragePointer>,
+        delete_mask: &HashSet<StoragePointer>,
+        schema: &CollectionSchema,
+    ) -> anyhow::Result<()> {
+        let appeared = self.fetch_objects_metadata(schema).await?;
+        let deletions = disappeared_objects(present, &appeared, delete_mask);
+        let (r2, kv, asset) = multiplex_delete(deletions);
+        let (delete_objstore, delete_kv, delete_asset) = join!(
+            self.delete_objstore(r2.into_iter()),
+            self.delete_kv(kv.into_iter()),
+            self.delete_asset(asset.into_iter()),
+        );
+        delete_objstore?;
+        delete_kv?;
+        delete_asset?;
         Ok(())
     }
 
@@ -243,16 +254,8 @@ impl<
         tables: &process_data::table::Tables,
         uploads: process_data::table::Uploads,
         force: bool,
-    ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>>
-    where
-        D::Error: std::error::Error,
-        K::Error: std::error::Error,
-        O::Error: std::error::Error,
-        A::Error: std::error::Error,
-    {
-        self.create_tables_if_not_exist(schema)
-            .await
-            .map_err(JobError::Database)?;
+    ) -> anyhow::Result<()> {
+        self.prepare_tables(schema).await?;
         let present_objects = self.fetch_objects_metadata(schema).await?;
         let delete_mask = uploads
             .iter()
@@ -260,52 +263,19 @@ impl<
             .cloned()
             .collect::<HashSet<_>>();
         let uploads = filter_uploads(uploads.into_iter(), &present_objects, force);
-
-        let (r2, kv, asset) = multiplex_upload(uploads);
-
-        let (upload_r2, upload_kv, upload_asset) = join!(
-            self.upload_objstore(r2.into_iter()),
-            self.upload_kv(kv.into_iter()),
-            self.upload_asset(asset.into_iter()),
-        );
-        upload_r2.map_err(JobError::ObjectStorage)?;
-        upload_kv.map_err(JobError::Kv)?;
-        upload_asset.map_err(JobError::Asset)?;
-
-        self.full_sync_db(schema, tables)
-            .await
-            .map_err(JobError::Database)?;
-
-        let appeared_objects = self.fetch_objects_metadata(schema).await?;
-        let deletions = disappeared_objects(present_objects, &appeared_objects, &delete_mask);
-        let (r2, kv, asset) = multiplex_delete(deletions);
-        let (delete_objstore, delete_kv, delete_asset) = join!(
-            self.delete_objstore(r2.into_iter()),
-            self.delete_kv(kv.into_iter()),
-            self.delete_asset(asset.into_iter()),
-        );
-        delete_objstore.map_err(JobError::ObjectStorage)?;
-        delete_kv.map_err(JobError::Kv)?;
-        delete_asset.map_err(JobError::Asset)?;
-
+        self.upload_all(uploads).await?;
+        self.sync_db(schema, tables).await?;
+        self.delete_disappeared(present_objects, &delete_mask, schema)
+            .await?;
         Ok(())
     }
 
     /// Drop all tables (for dump/reset).
-    pub async fn drop_all_table_for_dump(
-        &self,
-        schema: &CollectionSchema,
-    ) -> Result<(), JobError<D::Error, K::Error, O::Error, A::Error>>
-    where
-        D::Error: std::error::Error,
-        K::Error: std::error::Error,
-        O::Error: std::error::Error,
-        A::Error: std::error::Error,
-    {
+    pub async fn drop_all_table_for_dump(&self, schema: &CollectionSchema) -> anyhow::Result<()> {
         self.d1
-            .query::<Ignore, &str>(&sql::drop_all_tables(schema), &[])
+            .query::<Ignore>(&sql::drop_all_tables(schema), &[])
             .await
-            .map_err(JobError::Database)?;
+            .context("dropping tables")?;
         Ok(())
     }
 }

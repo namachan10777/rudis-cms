@@ -2,7 +2,10 @@
 //!
 //! This module handles validation and type coercion for document fields.
 
-use crate::{Error, ErrorDetail, process_data::ColumnValue, schema};
+use crate::{
+    process_data::{ColumnValue, Error, ErrorDetail},
+    schema,
+};
 
 use super::context::RecordContext;
 

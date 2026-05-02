@@ -1,7 +1,6 @@
 use std::str::FromStr as _;
 
 use crate::job;
-use image::EncodableLayout;
 
 pub struct LocalStorage {
     pool: sqlx::SqlitePool,
@@ -96,9 +95,8 @@ impl job::storage::r2::Client for R2Client {
         bucket: String,
         key: String,
         content_type: String,
-        body: aws_sdk_s3::primitives::ByteStream,
+        body: bytes::Bytes,
     ) -> Result<(), Self::Error> {
-        let body = body.collect().await.unwrap().into_bytes();
         sqlx::query(
             r#"
             INSERT INTO r2(bucket, key, content_type, body)
@@ -112,7 +110,7 @@ impl job::storage::r2::Client for R2Client {
         .bind(bucket)
         .bind(key)
         .bind(content_type)
-        .bind(body.as_bytes())
+        .bind(body.as_ref())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -150,7 +148,7 @@ impl job::storage::asset::Client for AssetClient {
 
 impl job::storage::kv::Client for KvClient {
     type Error = sqlx::Error;
-    async fn delete_multiple(&self, namespace: &str, keys: &[String]) -> Result<(), Self::Error> {
+    async fn delete_batch(&self, namespace: &str, keys: &[String]) -> Result<(), Self::Error> {
         sqlx::query(
             r#"
             DELETE FROM kv
@@ -168,7 +166,7 @@ impl job::storage::kv::Client for KvClient {
         Ok(())
     }
 
-    async fn write_multiple(
+    async fn put_batch(
         &self,
         namespace: &str,
         pairs: &[job::storage::kv::Pair],

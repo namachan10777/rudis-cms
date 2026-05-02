@@ -39,21 +39,16 @@ impl LocalDatabase {
 impl job::storage::sqlite::Client for Client {
     type Error = Error;
 
-    async fn query<
-        'q,
+    async fn query<R>(&self, statement: &str, params: &[&str]) -> Result<Vec<R>, Self::Error>
+    where
         R: serde::de::DeserializeOwned
             + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow>
             + Send
             + Unpin,
-        P: job::storage::sqlite::Param + sqlx::Encode<'q, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
-    >(
-        &self,
-        statement: &'q str,
-        params: &'q [&'q P],
-    ) -> Result<Vec<R>, Self::Error> {
+    {
         let query = params.iter().fold(
             sqlx::query_as::<sqlx::Sqlite, R>(statement),
-            |query, param| query.bind(param),
+            |query, param| query.bind(*param),
         );
         query.fetch_all(&self.pool).await.map_err(Error::Sqlite)
     }

@@ -10,9 +10,12 @@ use valuable::Valuable;
 
 use crate::config;
 
+pub mod error;
 pub mod markdown;
 pub mod object_loader;
 pub mod table;
+
+pub use error::{Error, ErrorContext, ErrorDetail};
 
 #[derive(Clone, Default, Debug, Valuable)]
 pub struct CompoundIdPrefix(Vec<(String, String)>);
@@ -43,7 +46,7 @@ impl CompoundId {
     pub(crate) fn try_into_prefix(
         self,
         prefix_names: impl Debug + IntoIterator<Item = String>,
-    ) -> Result<CompoundIdPrefix, crate::ErrorDetail> {
+    ) -> Result<CompoundIdPrefix, ErrorDetail> {
         let Self { id, prefix, .. } = self;
         let prefix = prefix_names
             .into_iter()
@@ -57,7 +60,7 @@ impl CompoundId {
             .map(|pair| match pair {
                 EitherOrBoth::Both(name, value) => Ok((name, value)),
                 EitherOrBoth::Left(_) | EitherOrBoth::Right(_) => {
-                    Err(crate::ErrorDetail::InvalidParentIdNames)
+                    Err(ErrorDetail::InvalidParentIdNames)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
