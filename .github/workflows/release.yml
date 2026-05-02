@@ -35,30 +35,58 @@ jobs:
           prerelease: false
 
   build:
-    name: Build
+    name: Build ${{ matrix.asset_name }}
     needs: create-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset_name: rudis-cms-linux-musl-amd64
+            build_command: cargo build --release --all-features --target=x86_64-unknown-linux-musl
+            install_cross: false
+            install_musl_tools: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: rudis-cms-linux-musl-aarch64
+            build_command: cross build --release --all-features --target=aarch64-unknown-linux-musl
+            install_cross: true
+            install_musl_tools: false
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset_name: rudis-cms-darwin-aarch64
+            build_command: cargo build --release --all-features --target=aarch64-apple-darwin
+            install_cross: false
+            install_musl_tools: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
       - name: Install musl tools
+        if: matrix.install_musl_tools
         run: sudo apt install -qq -y musl-tools --no-install-recommends
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.install_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release --all-features --target=x86_64-unknown-linux-musl
-
-      - name: Strip binary
-        run: strip target/x86_64-unknown-linux-musl/release/rudis-cms
+        run: ${{ matrix.build_command }}
+        env:
+          RUSTFLAGS: -C strip=symbols
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
@@ -66,6 +94,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/x86_64-unknown-linux-musl/release/rudis-cms
-          asset_name: rudis-cms-linux-amd64
+          asset_path: target/${{ matrix.target }}/release/rudis-cms
+          asset_name: ${{ matrix.asset_name }}
           asset_content_type: application/octet-stream
