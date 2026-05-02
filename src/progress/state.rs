@@ -56,6 +56,61 @@ impl State {
             .map(|t| t.elapsed())
             .unwrap_or_default()
     }
+
+    /// Initialise tracking slots for the given entries and update
+    /// `total_entries`. Subsequent updates reuse these slots.
+    pub fn register_entries(&mut self, entries: Vec<String>) {
+        self.stats.total_entries = entries.len();
+        for entry in entries {
+            self.entries.insert(entry, EntryInfo::default());
+        }
+    }
+
+    /// Record an entry's status; returns the status back so the caller can
+    /// drive any reporter-specific I/O on the same value.
+    pub fn update_entry(&mut self, entry: &str, status: EntryStatus) -> EntryStatus {
+        if let Some(info) = self.entries.get_mut(entry) {
+            info.status = Some(status.clone());
+        }
+        match &status {
+            EntryStatus::Done => self.stats.successful_entries += 1,
+            EntryStatus::Failed(_) => self.stats.failed_entries += 1,
+            _ => {}
+        }
+        status
+    }
+
+    /// Track a new upload under the given entry, with an initial
+    /// `Uploading` status.
+    pub fn register_upload(&mut self, entry: &str, object_key: &str) {
+        let info = self.entries.entry(entry.to_string()).or_default();
+        info.uploads.push(UploadInfo {
+            key: object_key.to_string(),
+            status: UploadStatus::Uploading,
+        });
+        self.object_to_entry
+            .insert(object_key.to_string(), entry.to_string());
+    }
+
+    /// Update an upload's status; returns the status back.
+    pub fn update_upload(&mut self, object_key: &str, status: UploadStatus) -> UploadStatus {
+        if let Some(entry) = self.object_to_entry.get(object_key).cloned()
+            && let Some(info) = self.entries.get_mut(&entry)
+            && let Some(upload) = info.uploads.iter_mut().find(|u| u.key == object_key)
+        {
+            upload.status = status.clone();
+        }
+        if matches!(status, UploadStatus::Uploaded | UploadStatus::Skipped) {
+            self.stats.upload_count += 1;
+        }
+        status
+    }
+
+    pub fn add_entry_warning(&mut self, entry: &str, message: &str) {
+        if let Some(info) = self.entries.get_mut(entry) {
+            info.warnings.push(message.to_string());
+        }
+    }
 }
 
 /// Wrapper that hides the lock-poisoning concern from callers. We `expect`

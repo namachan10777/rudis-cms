@@ -71,6 +71,32 @@ pub fn create_reporter() -> Arc<dyn ProgressReporter> {
     }
 }
 
+/// Register a batch of uploads against the reporter, all with the same status.
+/// Uploads without a `source_entry` are filed under `_unknown`.
+pub fn register_uploads(
+    reporter: &Arc<dyn ProgressReporter>,
+    uploads: &[crate::process_data::table::Upload],
+    status: UploadStatus,
+) {
+    for upload in uploads {
+        let entry = upload.source_entry.as_deref().unwrap_or("_unknown");
+        let key = upload.pointer.to_string();
+        reporter.register_upload(entry, &key);
+        reporter.update_upload(&key, status.clone());
+    }
+}
+
+/// Mark every upload in the slice as `Uploaded`.
+pub fn mark_uploads_uploaded(
+    reporter: &Arc<dyn ProgressReporter>,
+    uploads: &[crate::process_data::table::Upload],
+) {
+    for upload in uploads {
+        let key = upload.pointer.to_string();
+        reporter.update_upload(&key, UploadStatus::Uploaded);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

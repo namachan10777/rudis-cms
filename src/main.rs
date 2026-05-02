@@ -7,6 +7,7 @@ use futures::future::try_join_all;
 use indexmap::IndexMap;
 use rudis_cms::progress::{
     BatchPhase, EntryStatus, ProgressReporter, UploadStatus, create_reporter,
+    mark_uploads_uploaded, register_uploads,
 };
 use rudis_cms::{
     config, deploy, job,
@@ -133,17 +134,21 @@ impl Pipeline {
     async fn process_documents(&self) -> anyhow::Result<(Tables, Uploads)> {
         self.reporter.set_phase(BatchPhase::ProcessingDocuments);
 
-        let entry_names: Vec<String> = self.paths.iter().map(|p| p.display().to_string()).collect();
-        self.reporter.register_entries(entry_names);
+        let entries: Vec<(PathBuf, String)> = self
+            .paths
+            .iter()
+            .map(|p| (p.clone(), p.display().to_string()))
+            .collect();
+        self.reporter
+            .register_entries(entries.iter().map(|(_, name)| name.clone()).collect());
 
-        let tasks = self.paths.iter().map(|path| {
+        let tasks = entries.iter().map(|(path, path_str)| {
             let hasher = self.hasher.clone();
             let schema = &self.schema;
             let collection = &self.collection;
             let reporter = self.reporter.clone();
             async move {
-                let path_str = path.display().to_string();
-                reporter.update_entry(&path_str, EntryStatus::Processing);
+                reporter.update_entry(path_str, EntryStatus::Processing);
 
                 let (result, warnings) = rudis_cms::warning::collect_warnings(
                     rudis_cms::process_data::table::push_rows_from_document(
@@ -157,7 +162,7 @@ impl Pipeline {
                 .await;
 
                 for warning in warnings {
-                    reporter.add_entry_warning(&path_str, &warning);
+                    reporter.add_entry_warning(path_str, &warning);
                 }
 
                 let result = result.map(|(tables, mut uploads)| {
@@ -168,8 +173,8 @@ impl Pipeline {
                 });
 
                 match &result {
-                    Ok(_) => reporter.update_entry(&path_str, EntryStatus::Done),
-                    Err(e) => reporter.update_entry(&path_str, EntryStatus::Failed(e.to_string())),
+                    Ok(_) => reporter.update_entry(path_str, EntryStatus::Done),
+                    Err(e) => reporter.update_entry(path_str, EntryStatus::Failed(e.to_string())),
                 }
 
                 result.map_err(anyhow::Error::from)
@@ -225,17 +230,34 @@ async fn build_cloudflare_executor(
     Ok(job::JobExecutor { kv, d1, r2, asset })
 }
 
-fn register_uploads(
+/// Run the executor's `batch` step and report progress for the uploads.
+async fn execute_and_report<D, K, R, A>(
+    executor: &job::JobExecutor<D, K, R, A>,
+    pipeline: &Pipeline,
+    tables: &rudis_cms::process_data::table::Tables,
+    to_upload: Vec<rudis_cms::process_data::table::Upload>,
+    skipped: &[rudis_cms::process_data::table::Upload],
+    force: bool,
     reporter: &Arc<dyn ProgressReporter>,
-    uploads: &[rudis_cms::process_data::table::Upload],
-    status: UploadStatus,
-) {
-    for upload in uploads {
-        let entry = upload.source_entry.as_deref().unwrap_or("_unknown");
-        let key = upload.pointer.to_string();
-        reporter.register_upload(entry, &key);
-        reporter.update_upload(&key, status.clone());
-    }
+) -> anyhow::Result<()>
+where
+    D: rudis_cms::job::storage::sqlite::Client,
+    K: rudis_cms::job::storage::kv::Client,
+    R: rudis_cms::job::storage::r2::Client,
+    A: rudis_cms::job::storage::asset::Client,
+{
+    register_uploads(reporter, &to_upload, UploadStatus::Uploading);
+    register_uploads(reporter, skipped, UploadStatus::Skipped);
+
+    executor
+        .batch(&pipeline.schema, tables, to_upload.clone(), force)
+        .await?;
+
+    mark_uploads_uploaded(reporter, &to_upload);
+
+    reporter.set_phase(BatchPhase::Completed);
+    reporter.finish();
+    Ok(())
 }
 
 async fn run_batch(
@@ -254,22 +276,10 @@ async fn run_batch(
     let present_objects = executor.fetch_objects_metadata(&pipeline.schema).await?;
     let (to_upload, skipped) = job::partition_uploads(uploads, &present_objects, force);
 
-    register_uploads(&reporter, &to_upload, UploadStatus::Uploading);
-    register_uploads(&reporter, &skipped, UploadStatus::Skipped);
-
-    executor
-        .batch(&pipeline.schema, &tables, to_upload.clone(), force)
-        .await?;
-
-    for upload in &to_upload {
-        let key = upload.pointer.to_string();
-        reporter.update_upload(&key, UploadStatus::Uploaded);
-    }
-
-    reporter.set_phase(BatchPhase::Completed);
-    reporter.finish();
-
-    Ok(())
+    execute_and_report(
+        &executor, &pipeline, &tables, to_upload, &skipped, force, &reporter,
+    )
+    .await
 }
 
 async fn run_dump(
@@ -300,21 +310,8 @@ async fn run_dump(
     executor.drop_all_table_for_dump(&pipeline.schema).await?;
 
     reporter.set_phase(BatchPhase::UploadingStorage);
-    register_uploads(&reporter, &uploads, UploadStatus::Uploading);
 
-    executor
-        .batch(&pipeline.schema, &tables, uploads.clone(), true)
-        .await?;
-
-    for upload in &uploads {
-        let key = upload.pointer.to_string();
-        reporter.update_upload(&key, UploadStatus::Uploaded);
-    }
-
-    reporter.set_phase(BatchPhase::Completed);
-    reporter.finish();
-
-    Ok(())
+    execute_and_report(&executor, &pipeline, &tables, uploads, &[], true, &reporter).await
 }
 
 async fn run_show_schema(config: &Path, cmd: ShowSchemaCommand) -> anyhow::Result<()> {
@@ -352,9 +349,9 @@ async fn run_show_schema(config: &Path, cmd: ShowSchemaCommand) -> anyhow::Resul
             save,
             valibot,
         } => {
+            let compiled_schema = schema::TableSchema::compile(&collection)?;
+            let files = rudis_cms::typescript::file_map(&compiled_schema, valibot);
             if print {
-                let compiled_schema = schema::TableSchema::compile(&collection)?;
-                let files = rudis_cms::typescript::file_map(&compiled_schema, valibot);
                 for (_, content) in &files {
                     println!("// {name}");
                     print!("{content}");
@@ -374,8 +371,6 @@ async fn run_show_schema(config: &Path, cmd: ShowSchemaCommand) -> anyhow::Resul
                     )
                     .await?;
                 }
-                let compiled_schema = schema::TableSchema::compile(&collection)?;
-                let files = rudis_cms::typescript::file_map(&compiled_schema, valibot);
                 tokio::fs::create_dir_all(basedir.join(name)).await?;
                 for (filename, content) in &files {
                     let path = basedir.join(name).join(filename);
