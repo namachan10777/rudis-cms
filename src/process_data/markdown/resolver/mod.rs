@@ -212,7 +212,7 @@ impl RichTextDocument {
         document_path: Option<&Path>,
         uploader: &impl image::ImageUploadRegisterer,
         embed_svg_threshold: usize,
-    ) -> Result<(Self, Vec<blake3::Hash>), crate::ErrorDetail> {
+    ) -> Result<(Self, Vec<blake3::Hash>), crate::process_data::ErrorDetail> {
         let mut footnote_resolver = footnote::FootnoteResolver::new(&document.footnotes);
         let mut image_extractor = image::ImageSrcExtractor::default();
         let mut link_card_extractor = link_card::LinkCardExtractor::default();

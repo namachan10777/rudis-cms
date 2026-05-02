@@ -4,7 +4,7 @@
 
 use std::sync::LazyLock;
 
-use crate::ErrorDetail;
+use crate::process_data::ErrorDetail;
 
 pub(crate) static FRONTMATTER_SEPARATOR_YAML: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?:^|\n)---\s*\n").unwrap());

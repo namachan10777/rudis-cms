@@ -28,9 +28,9 @@ pub struct Client {
 }
 
 #[derive(Serialize)]
-struct Request<'a, P> {
+struct Request<'a> {
     sql: &'a str,
-    params: &'a [&'a P],
+    params: &'a [&'a str],
 }
 
 #[derive(Deserialize)]
@@ -55,15 +55,13 @@ impl Client {
 
 impl job::storage::sqlite::Client for Client {
     type Error = Error;
-    async fn query<
-        'q,
-        R: serde::de::DeserializeOwned + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow>,
-        P: job::storage::sqlite::Param + sqlx::Encode<'q, sqlx::Sqlite>,
-    >(
-        &self,
-        statement: &'q str,
-        params: &'q [&'q P],
-    ) -> Result<Vec<R>, Self::Error> {
+    async fn query<R>(&self, statement: &str, params: &[&str]) -> Result<Vec<R>, Self::Error>
+    where
+        R: serde::de::DeserializeOwned
+            + for<'a> sqlx::FromRow<'a, sqlx::sqlite::SqliteRow>
+            + Send
+            + Unpin,
+    {
         let response = self
             .client
             .post(self.url.clone())

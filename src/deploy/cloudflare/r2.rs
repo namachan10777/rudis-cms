@@ -53,14 +53,14 @@ impl job::storage::r2::Client for Client {
         bucket: String,
         key: String,
         content_type: String,
-        body: aws_sdk_s3::primitives::ByteStream,
+        body: bytes::Bytes,
     ) -> Result<(), Self::Error> {
         self.client
             .put_object()
             .bucket(bucket)
             .key(key)
             .content_type(content_type)
-            .body(body)
+            .body(aws_sdk_s3::primitives::ByteStream::from(body))
             .send()
             .await
             .map_err(|error| Error::Put(error.to_string()))?;

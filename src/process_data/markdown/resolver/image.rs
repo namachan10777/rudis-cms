@@ -3,13 +3,10 @@ use std::{collections::HashSet, path::Path};
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 
-use crate::{
-    ErrorDetail,
-    process_data::{
-        ImageReferenceMeta, ObjectReference,
-        markdown::{Node, parser::KeepRaw},
-        object_loader,
-    },
+use crate::process_data::{
+    ErrorDetail, ImageReferenceMeta, ObjectReference,
+    markdown::{Node, parser::KeepRaw},
+    object_loader,
 };
 
 #[derive(Default)]

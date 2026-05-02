@@ -7,9 +7,14 @@ use std::{path::Path, sync::Arc};
 
 use indexmap::IndexMap;
 
-use crate::{ErrorContext, ErrorDetail, config, process_data::ColumnValue, schema};
+use crate::{
+    config,
+    process_data::{ColumnValue, ErrorContext, ErrorDetail},
+    schema,
+};
 
 mod context;
+mod markdown_uploader;
 mod parse;
 mod serialize;
 mod transform;
@@ -56,7 +61,7 @@ pub async fn push_rows_from_document<P: AsRef<Path>>(
     schema: &schema::CollectionSchema,
     syntax: &config::DocumentSyntax,
     path: P,
-) -> Result<(Tables, Uploads), crate::Error> {
+) -> Result<(Tables, Uploads), crate::process_data::Error> {
     let ctx = ErrorContext::new(path.as_ref().to_owned());
     let document = tokio::fs::read_to_string(&path)
         .await

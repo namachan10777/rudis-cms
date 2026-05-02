@@ -5,7 +5,10 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use crate::{ErrorContext, process_data::CompoundId, process_data::CompoundIdPrefix, schema};
+use crate::{
+    process_data::{CompoundId, CompoundIdPrefix, ErrorContext},
+    schema,
+};
 
 /// Context for processing a record/row within a table.
 pub struct RecordContext {
@@ -37,7 +40,11 @@ impl RecordContext {
     }
 
     /// Create a nested context for a child table.
-    pub fn nest(self, table: impl Into<String>, id: CompoundId) -> Result<Self, crate::Error> {
+    pub fn nest(
+        self,
+        table: impl Into<String>,
+        id: CompoundId,
+    ) -> Result<Self, crate::process_data::Error> {
         let table = table.into();
         let inherit_ids = self.schema.tables.get(&table).unwrap().inherit_ids.clone();
         let Self {
