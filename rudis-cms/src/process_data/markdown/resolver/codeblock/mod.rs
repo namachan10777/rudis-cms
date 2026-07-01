@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn unsupported_language_falls_back_to_escaped_text() {
-        let nodes = highlight::<&str, ()>("let x: Vec<T> = 1;", &Some("rust"));
+        let nodes = highlight::<&str, ()>("let x: Vec<T> = 1;", &Some("definitely-not-a-lang"));
         let mut classes = Vec::new();
         collect_classes(&nodes, &mut classes);
         assert!(
