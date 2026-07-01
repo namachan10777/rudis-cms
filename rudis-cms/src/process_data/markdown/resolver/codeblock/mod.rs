@@ -1,112 +1,138 @@
-use std::sync::LazyLock;
-
 use html_escape::encode_safe;
 use indexmap::indexmap;
-use syntect::parsing::{BasicScopeStackOp, SyntaxDefinition, SyntaxSet};
+use treesitteract::{Event, Highlighter, Scope};
 
 use crate::process_data::markdown::Node;
-
-fn load_syntax_set() -> anyhow::Result<SyntaxSet> {
-    syntect::dumps::from_dump_file(".rudis/syntect.packdump").map_err(Into::into)
-}
-
-fn create_syntax_set() -> SyntaxSet {
-    match load_syntax_set() {
-        Ok(ss) => ss,
-        Err(_) => {
-            let ts_syntax = include_str!("./syntax/TypeScript.sublime-syntax");
-            let ts_syntax = SyntaxDefinition::load_from_str(ts_syntax, true, None).unwrap();
-            let ts_react_syntax = include_str!("./syntax/TypeScriptReact.sublime-syntax");
-            let ts_react_syntax =
-                SyntaxDefinition::load_from_str(ts_react_syntax, true, None).unwrap();
-
-            let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
-            builder.add(ts_syntax);
-            builder.add(ts_react_syntax);
-            let ss = builder.build();
-            let _ = std::fs::create_dir_all(".rudis");
-            let _ = syntect::dumps::dump_to_file(&ss, ".rudis/syntect.packdump");
-            ss
-        }
-    }
-}
-
-static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(create_syntax_set);
 
 struct StackRow<E> {
     leafs: Vec<Node<E>>,
     classes: String,
 }
 
-fn scope_to_classes(scope: syntect::parsing::Scope) -> String {
-    scope.to_string().replace('.', " ")
+/// tree-sitter のスコープ名(ドット表記)を空白区切りの CSS クラスへ変換する。
+/// 例: `"punctuation.bracket"` -> `"punctuation bracket"`。
+fn scope_to_classes(scope: &Scope) -> String {
+    scope.name().replace('.', " ")
 }
 
-pub fn highlight_impl<S: AsRef<str>, E>(
-    src: &str,
-    lang: &Option<S>,
-) -> Result<Vec<Node<E>>, syntect::Error> {
-    // Try to find syntax by language name, fallback to plain text
-    let syntax = if let Some(lang) = lang {
-        SYNTAX_SET
-            .find_syntax_by_name(lang.as_ref())
-            .or_else(|| SYNTAX_SET.find_syntax_by_extension(lang.as_ref()))
-            .or_else(|| SYNTAX_SET.find_syntax_by_first_line(src))
-            .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text())
-    } else {
-        SYNTAX_SET.find_syntax_plain_text()
-    };
+pub fn highlight_impl<E>(src: &str, lang: &str) -> Result<Vec<Node<E>>, treesitteract::Error> {
+    let mut highlighter = Highlighter::new(lang, src)?;
 
-    let mut parse_state = syntect::parsing::ParseState::new(syntax);
-    let mut scope_stack = syntect::parsing::ScopeStack::new();
-    let mut stack = Vec::<StackRow<E>>::new();
+    // 末尾を根とするスタック。Push で子スコープを積み、Pop で span にまとめて親へ返す。
+    let mut stack: Vec<StackRow<E>> = vec![StackRow {
+        leafs: Vec::new(),
+        classes: String::new(),
+    }];
 
-    for line in src.lines() {
-        let mut cur_index = 0;
-
-        let ops = parse_state.parse_line(line, &SYNTAX_SET)?;
-        for (i, op) in ops {
-            if i > cur_index {
-                stack
-                    .last_mut()
-                    .unwrap()
-                    .leafs
-                    .push(Node::Text(encode_safe(&line[cur_index..i]).into_owned()));
-                cur_index = i;
+    while let Some(event) = highlighter.next_event() {
+        match event {
+            Event::Push(scope) => stack.push(StackRow {
+                leafs: Vec::new(),
+                classes: scope_to_classes(&scope),
+            }),
+            Event::Pop(_) => {
+                let row = stack.pop().unwrap();
+                stack.last_mut().unwrap().leafs.push(Node::Eager {
+                    tag: "span".into(),
+                    attrs: indexmap! {
+                        "class".into() => row.classes.into(),
+                    },
+                    children: row.leafs,
+                });
             }
-            scope_stack.apply_with_hook(&op, |op, _| match op {
-                BasicScopeStackOp::Push(scope) => {
-                    stack.push(StackRow {
-                        leafs: Vec::new(),
-                        classes: scope_to_classes(scope),
-                    });
-                }
-                BasicScopeStackOp::Pop => {
-                    let row = stack.pop().unwrap();
-                    stack.last_mut().unwrap().leafs.push(Node::Eager {
-                        tag: "span".into(),
-                        attrs: indexmap! {
-                            "class".into() => row.classes.into(),
-                        },
-                        children: row.leafs,
-                    });
-                }
-            })?;
+            // Node::Text はレンダリング時に生書き出しされるため、格納前にエスケープする。
+            Event::Text(text) => stack
+                .last_mut()
+                .unwrap()
+                .leafs
+                .push(Node::Text(encode_safe(text).into_owned())),
+            Event::Break => stack
+                .last_mut()
+                .unwrap()
+                .leafs
+                .push(Node::Text("\n".into())),
+            // tree-sitter バックエンドでは生成されない。
+            Event::Clear(_) | Event::Restore | Event::Noop => {}
         }
-        stack
-            .last_mut()
-            .unwrap()
-            .leafs
-            .push(Node::Text(format!("{}\n", encode_safe(&line[cur_index..]))));
     }
 
     Ok(stack.pop().unwrap().leafs)
 }
 
+/// `lang` が `None`・未対応言語・パース失敗のときは、エスケープ済みプレーンテキストへ
+/// フォールバックする。treesitteract は TypeScript / TSX のみ対応。
 pub fn highlight<S: AsRef<str>, E>(src: &str, lang: &Option<S>) -> Vec<Node<E>> {
-    if let Ok(children) = highlight_impl(src, lang) {
-        children
-    } else {
-        vec![Node::Text(src.into())]
+    if let Some(lang) = lang
+        && let Ok(children) = highlight_impl(src, lang.as_ref())
+    {
+        return children;
+    }
+    vec![Node::Text(encode_safe(src).into_owned())]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Node ツリーを平坦化して、含まれる class 文字列を集める。
+    fn collect_classes<E>(nodes: &[Node<E>], out: &mut Vec<String>) {
+        for node in nodes {
+            if let Node::Eager {
+                attrs, children, ..
+            } = node
+            {
+                if let Some(class) = attrs.get("class").and_then(|v| v.to_str()) {
+                    out.push(class.to_string());
+                }
+                collect_classes(children, out);
+            }
+        }
+    }
+
+    /// Node ツリーの Text を連結する。
+    fn collect_text<E>(nodes: &[Node<E>], out: &mut String) {
+        for node in nodes {
+            match node {
+                Node::Text(t) => out.push_str(t),
+                Node::Eager { children, .. } => collect_text(children, out),
+                Node::Lazy { children, .. } => collect_text(children, out),
+            }
+        }
+    }
+
+    #[test]
+    fn typescript_produces_keyword_span() {
+        let nodes = highlight::<&str, ()>("const x = 1;", &Some("typescript"));
+        let mut classes = Vec::new();
+        collect_classes(&nodes, &mut classes);
+        assert!(
+            classes.iter().any(|c| c.split(' ').any(|c| c == "keyword")),
+            "keyword span should appear: {classes:?}"
+        );
+    }
+
+    #[test]
+    fn unsupported_language_falls_back_to_escaped_text() {
+        let nodes = highlight::<&str, ()>("let x: Vec<T> = 1;", &Some("rust"));
+        let mut classes = Vec::new();
+        collect_classes(&nodes, &mut classes);
+        assert!(
+            classes.is_empty(),
+            "no span for unsupported lang: {classes:?}"
+        );
+        let mut text = String::new();
+        collect_text(&nodes, &mut text);
+        assert!(text.contains("&lt;T&gt;"), "text must be escaped: {text:?}");
+    }
+
+    #[test]
+    fn no_language_falls_back_to_escaped_text() {
+        let nodes = highlight::<&str, ()>("a < b && c", &None::<&str>);
+        let mut classes = Vec::new();
+        collect_classes(&nodes, &mut classes);
+        assert!(classes.is_empty());
+        let mut text = String::new();
+        collect_text(&nodes, &mut text);
+        assert!(text.contains("a &lt; b &amp;&amp; c"), "escaped: {text:?}");
     }
 }

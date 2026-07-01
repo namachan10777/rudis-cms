@@ -129,6 +129,41 @@ pub enum Scope {
     Other(String),
 }
 
+impl Scope {
+    /// tree-sitter 標準キャプチャ名(ドット表記、例: `"punctuation.bracket"`)を返す。
+    /// `NAMES` と対応。`Other(s)` は `s` をそのまま返す。
+    pub fn name(&self) -> &str {
+        match self {
+            Scope::Attribute => "attribute",
+            Scope::Comment => "comment",
+            Scope::Constant => "constant",
+            Scope::ConstantBuiltin => "constant.builtin",
+            Scope::Constructor => "constructor",
+            Scope::Embedded => "embedded",
+            Scope::Function => "function",
+            Scope::FunctionBuiltin => "function.builtin",
+            Scope::Keyword => "keyword",
+            Scope::Module => "module",
+            Scope::Number => "number",
+            Scope::Operator => "operator",
+            Scope::Property => "property",
+            Scope::Punctuation => "punctuation",
+            Scope::PunctuationBracket => "punctuation.bracket",
+            Scope::PunctuationDelimiter => "punctuation.delimiter",
+            Scope::PunctuationSpecial => "punctuation.special",
+            Scope::String => "string",
+            Scope::StringSpecial => "string.special",
+            Scope::Tag => "tag",
+            Scope::Type => "type",
+            Scope::TypeBuiltin => "type.builtin",
+            Scope::Variable => "variable",
+            Scope::VariableBuiltin => "variable.builtin",
+            Scope::VariableParameter => "variable.parameter",
+            Scope::Other(s) => s,
+        }
+    }
+}
+
 /// スタックマシンのイベント。syntect の `ScopeStackOp` 語彙に `Text` / `Break` を統合したもの。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<'a> {
@@ -303,6 +338,14 @@ mod tests {
     fn unknown_language_errors() {
         let result = Highlighter::new("unknownlang", "x");
         assert!(matches!(result, Err(Error::UnknownLanguage(l)) if l == "unknownlang"));
+    }
+
+    #[test]
+    fn scope_name_matches_names_table() {
+        for (i, name) in NAMES.iter().enumerate() {
+            assert_eq!(scope_from_index(i).name(), *name, "index {i}");
+        }
+        assert_eq!(Scope::Other("foo".to_owned()).name(), "foo");
     }
 
     #[test]
