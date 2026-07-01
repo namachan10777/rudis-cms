@@ -50,6 +50,47 @@ schema:
 rudis-cms -c config.yaml batch
 ```
 
+## Syntax Highlighting
+
+Fenced code blocks are highlighted with tree-sitter (via the bundled
+`treesitteract` crate). Write one of the tokens below as the code fence info
+string (e.g. ` ```rust `). Tokens are **case-insensitive**. Unknown or omitted
+languages fall back to plain (escaped) text.
+
+| Language   | Fence tokens                    |
+| ---------- | ------------------------------- |
+| Rust       | `rust`, `rs`                    |
+| Python     | `python`, `py`                  |
+| Go         | `go`, `golang`                  |
+| C          | `c`, `h`                        |
+| C++        | `cpp`, `c++`, `cc`, `cxx`, `hpp`|
+| Java       | `java`                          |
+| JSON       | `json`, `jsonc`                 |
+| CSS        | `css`                           |
+| HTML       | `html`, `htm`                   |
+| Shell/Bash | `bash`, `sh`, `shell`, `zsh`    |
+| Ruby       | `ruby`, `rb`                    |
+| C#         | `csharp`, `c#`, `cs`            |
+| TOML       | `toml`                          |
+| YAML       | `yaml`, `yml`                   |
+| Lua        | `lua`                           |
+| Scala      | `scala`, `sbt`                  |
+| Haskell    | `haskell`, `hs`                 |
+| OCaml      | `ocaml`, `ml`                   |
+| Elixir     | `elixir`, `ex`, `exs`           |
+| Regex      | `regex`                         |
+| Markdown   | `markdown`, `md`                |
+| JavaScript | `javascript`, `js`, `jsx`, `mjs`, `cjs` |
+| TypeScript | `typescript`, `ts`              |
+| TSX        | `tsx`, `typescriptreact`        |
+| PHP        | `php`                           |
+| SQL        | `sql`                           |
+| XML        | `xml`                           |
+| Nix        | `nix`                           |
+| Zig        | `zig`                           |
+| Svelte     | `svelte`                        |
+| Swift      | `swift`                         |
+
 ## Documentation
 
 - [English](https://namachan10777.github.io/rudis-cms/en/)
