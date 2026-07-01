@@ -1,0 +1,52 @@
+[package]
+name = "rudis-cms"
+version = "0.4.1"
+edition = "2024"
+
+[dependencies]
+aws-config = { version = "1.8" }
+aws-sdk-s3 = { version = "1" }
+
+anyhow = "1"
+blake3 = { version = "1.8", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
+glob = "0.3"
+image = { version = "0.25", features = ["serde"] }
+katex = "0.4"
+pulldown-cmark = "0.13"
+roxmltree = "0.21"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+syntect = "5.3"
+thiserror = "2"
+usvg = "0.47"
+valuable = { version = "0.1", features = ["derive"] }
+winnow = "1"
+toml = "1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+url = { version = "2", features = ["serde"] }
+scraper = "0.27"
+derive-debug = "0.1"
+html_parser = "0.7"
+itertools = "0.15"
+indexmap = { version = "2", features = ["serde"] }
+data-url = "0.3"
+urlencoding = "2"
+blurhash = "0.2"
+mime_guess = "2"
+mime = "0.3"
+crossbeam = { version = "0.8", features = ["crossbeam-queue"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
+reqwest = { version = "0.13", features = ["json", "rustls", "webpki-roots"], default-features = false }
+html-escape = "0.2"
+stringcase = "0.4"
+base64 = "0.22"
+serde_with = { version = "3", features = ["json"] }
+sqlx = { version = "0.8", default-features = false, features = ["derive", "json", "runtime-tokio", "sqlite"] }
+bytes = "1"
+indicatif = "0.18"
+console = "0.16"
+unicode-width = "0.2"
