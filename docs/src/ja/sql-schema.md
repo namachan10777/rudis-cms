@@ -14,6 +14,10 @@ schema:
   title:
     type: string
     required: true
+  created_at:
+    type: created_at
+  updated_at:
+    type: updated_at
   date:
     type: date
     index: true
@@ -37,6 +41,8 @@ schema:
 CREATE TABLE IF NOT EXISTS posts (
   id TEXT NOT NULL,
   title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
   date TEXT NOT NULL,
   body TEXT NOT NULL,
   PRIMARY KEY (id)
@@ -63,9 +69,13 @@ CREATE INDEX IF NOT EXISTS index_post_tags_tag ON post_tags(tag);
 | `date` | `TEXT` | ISO 8601形式 |
 | `datetime` | `TEXT` | ISO 8601形式 |
 | `hash` | `TEXT` | BLAKE3ハッシュ |
+| `created_at` | `TEXT NOT NULL` | INSERT時に自動設定 |
+| `updated_at` | `TEXT NOT NULL` | INSERT時と実際の内容変更時に自動設定 |
 | `markdown` | `TEXT` | ストレージポインター付きJSON |
 | `image` | `TEXT` | ストレージポインター付きJSON |
 | `file` | `TEXT` | ストレージポインター付きJSON |
+
+タイムスタンプ列名にはスキーマのキーが使われるため、`created_at`や`updated_at`という名前に固定されません。既存テーブルへタイムスタンプ型を追加する場合は、次回同期前に外部migrationで列追加と既存行の補完を行ってください。生成される`CREATE TABLE IF NOT EXISTS`は既存テーブルを変更しません。
 
 ## ストレージポインター
 

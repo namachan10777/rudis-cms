@@ -251,6 +251,9 @@ pub async fn process_field(
     def: &schema::FieldType,
     value: Option<serde_json::Value>,
 ) -> Result<Option<FieldValue>, Error> {
+    if def.is_timestamp() {
+        return Ok(None);
+    }
     hasher.update(name.as_bytes());
     let value = match value {
         Some(value) => value,
@@ -268,6 +271,7 @@ pub async fn process_field(
     let value = match def {
         schema::FieldType::Id => unreachable!(),
         schema::FieldType::Hash => process_hash_field(ctx, name).map(FieldValue::Column)?,
+        schema::FieldType::CreatedAt | schema::FieldType::UpdatedAt => unreachable!(),
         schema::FieldType::Boolean { .. } => {
             process_boolean_field(ctx, value).map(FieldValue::Column)?
         }

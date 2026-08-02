@@ -14,6 +14,10 @@ schema:
   title:
     type: string
     required: true
+  created_at:
+    type: created_at
+  updated_at:
+    type: updated_at
   date:
     type: date
     index: true
@@ -37,6 +41,8 @@ The following SQL is generated:
 CREATE TABLE IF NOT EXISTS posts (
   id TEXT NOT NULL,
   title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
   date TEXT NOT NULL,
   body TEXT NOT NULL,
   PRIMARY KEY (id)
@@ -63,9 +69,13 @@ CREATE INDEX IF NOT EXISTS index_post_tags_tag ON post_tags(tag);
 | `date` | `TEXT` | ISO 8601 format |
 | `datetime` | `TEXT` | ISO 8601 format |
 | `hash` | `TEXT` | BLAKE3 hash |
+| `created_at` | `TEXT NOT NULL` | Automatically assigned on insert |
+| `updated_at` | `TEXT NOT NULL` | Assigned on insert and actual content changes |
 | `markdown` | `TEXT` | JSON with storage pointer |
 | `image` | `TEXT` | JSON with storage pointer |
 | `file` | `TEXT` | JSON with storage pointer |
+
+Timestamp field names come from the schema keys and do not need to be named `created_at` or `updated_at`. Adding a timestamp field to an existing table requires an external migration before the next sync; generated `CREATE TABLE IF NOT EXISTS` statements do not alter existing tables.
 
 ## Storage Pointers
 

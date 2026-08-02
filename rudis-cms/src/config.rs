@@ -43,6 +43,8 @@ pub struct MarkdownConfig {}
 pub enum Field {
     Id,
     Hash,
+    CreatedAt,
+    UpdatedAt,
     String {
         #[serde(default)]
         index: bool,

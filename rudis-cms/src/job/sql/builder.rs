@@ -11,6 +11,7 @@ pub(crate) fn sqlite_type(field: &FieldType) -> Option<&'static str> {
     Some(match field {
         FieldType::Id => "TEXT",
         FieldType::Hash => "TEXT",
+        FieldType::CreatedAt | FieldType::UpdatedAt => "TEXT",
         FieldType::String { .. } => "TEXT",
         FieldType::Integer { .. } => "INTEGER",
         FieldType::Real { .. } => "REAL",
@@ -32,6 +33,8 @@ pub(crate) fn sqlite_index_expr<'a>(
     Some(match field {
         FieldType::Id
         | FieldType::Hash
+        | FieldType::CreatedAt
+        | FieldType::UpdatedAt
         | FieldType::String { .. }
         | FieldType::Integer { .. }
         | FieldType::Real { .. }

@@ -214,6 +214,16 @@ impl<
     ) -> anyhow::Result<()> {
         let param = serde_json::to_string(tables).expect("tables must be encodable");
         for (table, table_schema) in &schema.tables {
+            let statement = sql::touch_ancestors(table, table_schema, schema);
+            if statement.is_empty() {
+                continue;
+            }
+            self.d1
+                .query::<Ignore>(&statement, &[param.as_str()])
+                .await
+                .with_context(|| format!("updating ancestors for table={table}"))?;
+        }
+        for (table, table_schema) in &schema.tables {
             self.d1
                 .query::<Ignore>(&sql::upsert(table, table_schema), &[param.as_str()])
                 .await

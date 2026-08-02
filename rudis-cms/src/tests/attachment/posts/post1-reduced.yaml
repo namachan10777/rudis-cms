@@ -1,0 +1,4 @@
+id: post1
+attachments:
+  - id: data1-1
+    file: ./files/data1-2.txt

@@ -1,0 +1,8 @@
+id: post1
+title: Post
+comments:
+  - comment_id: comment1
+    body: Comment
+    replies:
+      - reply_id: reply1
+        body: Before

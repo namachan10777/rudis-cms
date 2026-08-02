@@ -79,6 +79,28 @@ hash:
 - Automatically computed from file content
 - Useful for cache invalidation
 
+### created_at / updated_at
+
+Fields whose record creation and update timestamps are managed automatically by rudis-cms.
+
+```yaml
+created:
+  type: created_at
+modified:
+  type: updated_at
+```
+
+- Field names are configurable
+- Each type can appear at most once per table, and either type can be used independently
+- Stored as `TEXT` in UTC ISO 8601 format with millisecond precision
+- Both fields receive the creation time when a record is inserted
+- `created_at` never changes after insertion
+- `updated_at` changes only when a regular field, image, file, or descendant `records` row has an actual difference
+- Re-syncing identical content preserves `updated_at`
+- Excluded from input data and generated `Frontmatter` types, but exposed as `Date` in the generated TypeScript `Table` type
+
+rudis-cms does not migrate existing tables automatically. Before syncing, add the corresponding `TEXT NOT NULL` columns and backfill existing rows with your migration system.
+
 ## Content Types
 
 ### markdown

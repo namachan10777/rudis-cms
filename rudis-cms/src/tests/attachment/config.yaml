@@ -7,6 +7,10 @@ syntax:
 schema:
   id:
     type: id
+  created:
+    type: created_at
+  modified:
+    type: updated_at
   attachments:
     type: records
     inherit_ids: [post_id]
@@ -14,6 +18,10 @@ schema:
     schema:
       id:
         type: id
+      created:
+        type: created_at
+      modified:
+        type: updated_at
       file:
         type: file
         storage:

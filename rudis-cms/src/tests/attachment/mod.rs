@@ -37,6 +37,12 @@ struct R2Row {
     content_type: String,
 }
 
+#[derive(FromRow, Debug)]
+struct TimestampRow {
+    created: String,
+    modified: String,
+}
+
 #[tokio::test]
 async fn upsert() {
     let (schema, hasher, syntax) = super::load_schema("src/tests/attachment/config.yaml")
@@ -244,4 +250,149 @@ async fn cleanup() {
             },
         ]
     )
+}
+
+#[tokio::test]
+async fn timestamps_track_file_and_descendant_changes() {
+    const OLD_TIME: &str = "2000-01-01T00:00:00.000Z";
+
+    let (schema, hasher, syntax) = super::load_schema("src/tests/attachment/config.yaml")
+        .await
+        .unwrap();
+    let uploader = local_uploader().await;
+    let (tables, uploads) = super::load_files(
+        &hasher,
+        &schema,
+        &syntax,
+        &["src/tests/attachment/posts/post1.yaml"],
+    )
+    .await
+    .unwrap();
+    uploader
+        .executor
+        .batch(&schema, &tables, uploads, false)
+        .await
+        .unwrap();
+
+    let inserted =
+        sqlx::query_as::<_, TimestampRow>("SELECT created, modified FROM posts WHERE id = 'post1'")
+            .fetch_one(uploader.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(inserted.created, inserted.modified);
+
+    sqlx::query("UPDATE posts SET created = ?, modified = ? WHERE id = 'post1'")
+        .bind(OLD_TIME)
+        .bind(OLD_TIME)
+        .execute(uploader.db.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE attachments SET created = ?, modified = ?")
+        .bind(OLD_TIME)
+        .bind(OLD_TIME)
+        .execute(uploader.db.pool())
+        .await
+        .unwrap();
+
+    let (tables, uploads) = super::load_files(
+        &hasher,
+        &schema,
+        &syntax,
+        &["src/tests/attachment/posts/post1.yaml"],
+    )
+    .await
+    .unwrap();
+    uploader
+        .executor
+        .batch(&schema, &tables, uploads, false)
+        .await
+        .unwrap();
+    let unchanged =
+        sqlx::query_as::<_, TimestampRow>("SELECT created, modified FROM posts WHERE id = 'post1'")
+            .fetch_one(uploader.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(unchanged.created, OLD_TIME);
+    assert_eq!(unchanged.modified, OLD_TIME);
+
+    let (tables, uploads) = super::load_files(
+        &hasher,
+        &schema,
+        &syntax,
+        &["src/tests/attachment/posts/post1-after.yaml"],
+    )
+    .await
+    .unwrap();
+    uploader
+        .executor
+        .batch(&schema, &tables, uploads, false)
+        .await
+        .unwrap();
+
+    let parent =
+        sqlx::query_as::<_, TimestampRow>("SELECT created, modified FROM posts WHERE id = 'post1'")
+            .fetch_one(uploader.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(parent.created, OLD_TIME);
+    assert_ne!(parent.modified, OLD_TIME);
+
+    let attachment = sqlx::query_as::<_, TimestampRow>(
+        "SELECT created, modified FROM attachments WHERE id = 'data1-1'",
+    )
+    .fetch_one(uploader.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(attachment.created, OLD_TIME);
+    assert_ne!(attachment.modified, OLD_TIME);
+
+    sqlx::query("UPDATE posts SET modified = ? WHERE id = 'post1'")
+        .bind(OLD_TIME)
+        .execute(uploader.db.pool())
+        .await
+        .unwrap();
+    let (tables, uploads) = super::load_files(
+        &hasher,
+        &schema,
+        &syntax,
+        &["src/tests/attachment/posts/post1-reduced.yaml"],
+    )
+    .await
+    .unwrap();
+    uploader
+        .executor
+        .batch(&schema, &tables, uploads, false)
+        .await
+        .unwrap();
+    let after_delete =
+        sqlx::query_as::<_, TimestampRow>("SELECT created, modified FROM posts WHERE id = 'post1'")
+            .fetch_one(uploader.db.pool())
+            .await
+            .unwrap();
+    assert_ne!(after_delete.modified, OLD_TIME);
+
+    sqlx::query("UPDATE posts SET modified = ? WHERE id = 'post1'")
+        .bind(OLD_TIME)
+        .execute(uploader.db.pool())
+        .await
+        .unwrap();
+    let (tables, uploads) = super::load_files(
+        &hasher,
+        &schema,
+        &syntax,
+        &["src/tests/attachment/posts/post1-after.yaml"],
+    )
+    .await
+    .unwrap();
+    uploader
+        .executor
+        .batch(&schema, &tables, uploads, false)
+        .await
+        .unwrap();
+    let after_add =
+        sqlx::query_as::<_, TimestampRow>("SELECT created, modified FROM posts WHERE id = 'post1'")
+            .fetch_one(uploader.db.pool())
+            .await
+            .unwrap();
+    assert_ne!(after_add.modified, OLD_TIME);
 }

@@ -79,6 +79,28 @@ hash:
 - ファイル内容から自動計算
 - キャッシュ無効化に有用
 
+### created_at / updated_at
+
+recordの作成・更新時刻をrudis-cmsが自動管理するフィールド。
+
+```yaml
+created:
+  type: created_at
+modified:
+  type: updated_at
+```
+
+- フィールド名は自由に指定可能
+- 各型はテーブルごとに最大1つで、片方だけでも使用可能
+- UTCのISO 8601形式（ミリ秒精度）で`TEXT`として保存
+- 新規作成時は両方に作成時刻を設定
+- `created_at`は作成後に変更されない
+- `updated_at`は通常フィールド、画像・ファイル、または子孫の`records`に実際の差分がある場合だけ更新
+- 同一内容の再同期では`updated_at`を維持
+- 入力データや生成される`Frontmatter`には含まれず、生成TypeScriptの`Table`型では`Date`として公開
+
+既存テーブルに追加する場合、rudis-cmsは列を自動移行しません。同期前に同名の`TEXT NOT NULL`列をmigrationで追加し、既存行を補完してください。
+
 ## コンテンツ型
 
 ### markdown

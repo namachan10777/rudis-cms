@@ -20,6 +20,7 @@ pub fn is_normal_required_field(def: &schema::FieldType) -> bool {
     match def {
         schema::FieldType::Id => false,
         schema::FieldType::Hash => false,
+        schema::FieldType::CreatedAt | schema::FieldType::UpdatedAt => false,
         schema::FieldType::String { required, .. } => *required,
         schema::FieldType::Boolean { required, .. } => *required,
         schema::FieldType::Integer { required, .. } => *required,

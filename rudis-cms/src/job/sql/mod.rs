@@ -5,6 +5,7 @@ mod cleanup;
 mod ddl;
 mod drop_all_table;
 mod fetch_objects;
+mod touch_ancestors;
 mod upsert;
 
 pub fn cleanup(table: &str, schema: &TableSchema) -> String {
@@ -28,6 +29,16 @@ pub fn fetch_objects(schema: &CollectionSchema) -> String {
 pub fn upsert(table: &str, schema: &TableSchema) -> String {
     let mut out = String::new();
     upsert::generate(&mut out, table, schema).unwrap();
+    out
+}
+
+pub fn touch_ancestors(
+    table: &str,
+    table_schema: &TableSchema,
+    schema: &CollectionSchema,
+) -> String {
+    let mut out = String::new();
+    touch_ancestors::generate(&mut out, table, table_schema, schema).unwrap();
     out
 }
 

@@ -140,6 +140,12 @@ fn generate_table_validator_field(
                 "v.pipe(v.string(), v.transform((datetime) => new Date(datetime)))"
             )?;
         }
+        FieldType::CreatedAt | FieldType::UpdatedAt => {
+            write!(
+                out,
+                "v.pipe(v.string(), v.transform((datetime) => new Date(datetime)))"
+            )?;
+        }
         FieldType::Image { .. } | FieldType::File { .. } | FieldType::Markdown { .. } if sqlite => {
             write!(
                 out,
@@ -174,7 +180,7 @@ fn generate_frontmatter_validator<'o, 'i>(
 ) -> std::fmt::Result {
     writeln!(out, "export const frontmatter = v.object({{")?;
     fields.try_for_each(|(name, field)| match field {
-        FieldType::Markdown { .. } => Ok(()),
+        FieldType::Markdown { .. } | FieldType::CreatedAt | FieldType::UpdatedAt => Ok(()),
         FieldType::Records { table, .. } => {
             writeln!(
                 out,
@@ -195,6 +201,7 @@ fn generate_frontmatter_with_markdown_columns_validor<'o, 'i>(
         "export const frontmatterWithMarkdownColumns = v.object({{"
     )?;
     fields.try_for_each(|(name, field)| match field {
+        FieldType::CreatedAt | FieldType::UpdatedAt => Ok(()),
         FieldType::Records { table, .. } => writeln!(
             out,
             "  {name}: v.array({table}.frontmatterWithMarkdownColumns),"

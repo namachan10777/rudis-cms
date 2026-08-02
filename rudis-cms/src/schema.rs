@@ -8,6 +8,10 @@ pub enum Error {
     IdUndefined,
     #[error("Hash field is undefined")]
     HashUndefined,
+    #[error("Created-at field is defined more than once in table {table}")]
+    DuplicateCreatedAt { table: String },
+    #[error("Updated-at field is defined more than once in table {table}")]
+    DuplicateUpdatedAt { table: String },
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +34,7 @@ pub struct TableSchema {
     pub(crate) inherit_ids: Vec<String>,
     pub(crate) id_name: String,
     pub(crate) hash_name: Option<String>,
+    pub(crate) updated_at_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +46,8 @@ pub struct CollectionSchema {
 pub(crate) enum FieldType {
     Id,
     Hash,
+    CreatedAt,
+    UpdatedAt,
     String {
         required: bool,
         index: bool,
@@ -108,6 +115,23 @@ impl TableSchema {
         inherit_ids: Vec<String>,
         table: String,
     ) -> Result<TableSchema, Error> {
+        let created_at_names = schema
+            .iter()
+            .filter(|(_, field)| matches!(field, config::Field::CreatedAt))
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        if created_at_names.len() > 1 {
+            return Err(Error::DuplicateCreatedAt { table });
+        }
+        let updated_at_names = schema
+            .iter()
+            .filter(|(_, field)| matches!(field, config::Field::UpdatedAt))
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        if updated_at_names.len() > 1 {
+            return Err(Error::DuplicateUpdatedAt { table });
+        }
+        let updated_at_name = updated_at_names.into_iter().next();
         let id_name = schema
             .iter()
             .find_map(|(name, def)| {
@@ -129,6 +153,8 @@ impl TableSchema {
                         hash_name = Some(name.clone());
                         FieldType::Hash
                     }
+                    config::Field::CreatedAt => FieldType::CreatedAt,
+                    config::Field::UpdatedAt => FieldType::UpdatedAt,
                     config::Field::String { required, index } => FieldType::String {
                         required: *required,
                         index: *index,
@@ -164,6 +190,7 @@ impl TableSchema {
                             inherit_ids: image.inherit_ids.clone(),
                             id_name: "src_id".to_string(),
                             hash_name: None,
+                            updated_at_name: None,
                             fields: indexmap! {
                                 "src_id".to_string() => FieldType::Id,
                                 "image".to_string() => FieldType::Image { required: true, storage: image.storage.clone() },
@@ -225,6 +252,7 @@ impl TableSchema {
             parent,
             id_name,
             hash_name,
+            updated_at_name,
             fields,
             inherit_ids,
         })
@@ -261,7 +289,11 @@ impl TableSchema {
     }
 
     pub(crate) fn is_id_only_table(&self) -> bool {
-        self.fields.len() == 1
+        self.fields
+            .values()
+            .filter(|field| !field.is_timestamp())
+            .count()
+            == 1
     }
 }
 
@@ -273,6 +305,7 @@ impl FieldType {
             Self::Datetime { required, .. } => *required,
             Self::File { required, .. } => *required,
             Self::Hash => true,
+            Self::CreatedAt | Self::UpdatedAt => true,
             Self::Image { required, .. } => *required,
             Self::Integer { required, .. } => *required,
             Self::String { required, .. } => *required,
@@ -290,6 +323,7 @@ impl FieldType {
             Self::Datetime { index, .. } => *index,
             Self::File { .. } => false,
             Self::Hash => true,
+            Self::CreatedAt | Self::UpdatedAt => false,
             Self::Image { .. } => false,
             Self::Integer { index, .. } => *index,
             Self::String { index, .. } => *index,
@@ -298,5 +332,76 @@ impl FieldType {
             Self::Real { index, .. } => *index,
             Self::Records { .. } => false,
         }
+    }
+
+    pub(crate) fn is_timestamp(&self) -> bool {
+        matches!(self, Self::CreatedAt | Self::UpdatedAt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_collection(schema: &str) -> config::Collection {
+        serde_yaml::from_str(&format!(
+            r#"
+glob: "posts/*.yaml"
+syntax:
+  type: yaml
+table: posts
+name: posts
+database_id: test
+schema:
+{schema}
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn timestamp_types_are_optional_and_have_custom_names() {
+        let collection = parse_collection(
+            r#"  id:
+    type: id
+  first_seen:
+    type: created_at
+  changed:
+    type: updated_at"#,
+        );
+        let schema = TableSchema::compile(&collection).unwrap();
+        let posts = &schema.tables["posts"];
+        assert!(matches!(posts.fields["first_seen"], FieldType::CreatedAt));
+        assert!(matches!(posts.fields["changed"], FieldType::UpdatedAt));
+        assert_eq!(posts.updated_at_name.as_deref(), Some("changed"));
+    }
+
+    #[test]
+    fn duplicate_timestamp_types_are_rejected() {
+        let created = parse_collection(
+            r#"  id:
+    type: id
+  first_created:
+    type: created_at
+  second_created:
+    type: created_at"#,
+        );
+        assert!(matches!(
+            TableSchema::compile(&created),
+            Err(Error::DuplicateCreatedAt { table }) if table == "posts"
+        ));
+
+        let updated = parse_collection(
+            r#"  id:
+    type: id
+  first_updated:
+    type: updated_at
+  second_updated:
+    type: updated_at"#,
+        );
+        assert!(matches!(
+            TableSchema::compile(&updated),
+            Err(Error::DuplicateUpdatedAt { table }) if table == "posts"
+        ));
     }
 }

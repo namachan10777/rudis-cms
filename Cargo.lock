@@ -3757,7 +3757,7 @@ dependencies = [
 
 [[package]]
 name = "rudis-cms"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "aws-config",

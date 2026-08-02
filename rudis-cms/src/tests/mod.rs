@@ -20,6 +20,7 @@ use crate::{
 
 mod attachment;
 mod subtable;
+mod timestamp;
 
 async fn load_schema(
     path: &str,

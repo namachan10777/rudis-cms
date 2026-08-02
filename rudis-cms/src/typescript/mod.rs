@@ -128,6 +128,9 @@ fn generate_table_type_field(out: &mut String, name: &str, field: &FieldType) ->
         FieldType::Datetime { .. } => {
             write!(out, "Date")?;
         }
+        FieldType::CreatedAt | FieldType::UpdatedAt => {
+            write!(out, "Date")?;
+        }
         FieldType::Image { .. } => {
             write!(out, "{}Column", upper_camel_case(name))?;
         }
@@ -162,7 +165,7 @@ fn generate_frontmatter_type<'o, 'i>(
 ) -> std::fmt::Result {
     writeln!(out, "export interface Frontmatter {{")?;
     fields.try_for_each(|(name, field)| match field {
-        FieldType::Markdown { .. } => Ok(()),
+        FieldType::Markdown { .. } | FieldType::CreatedAt | FieldType::UpdatedAt => Ok(()),
         FieldType::Records { table, .. } => {
             writeln!(out, "  {name}: {table}.FrontmatterWithMarkdownColumns[];")
         }
@@ -177,6 +180,7 @@ fn generate_frontmatter_with_markdown_columns_type<'o, 'i>(
 ) -> std::fmt::Result {
     writeln!(out, "export interface FrontmatterWithMarkdownColumns {{")?;
     fields.try_for_each(|(name, field)| match field {
+        FieldType::CreatedAt | FieldType::UpdatedAt => Ok(()),
         FieldType::Records { table, .. } => {
             writeln!(out, "  {name}: {table}.FrontmatterWithMarkdownColumns[];")
         }
@@ -225,4 +229,43 @@ pub fn file_map(schema: &CollectionSchema, enable_valibot: bool) -> IndexMap<Pat
         }
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timestamp_schema() -> CollectionSchema {
+        let collection: config::Collection = serde_yaml::from_str(
+            r#"
+glob: "posts/*.yaml"
+syntax:
+  type: yaml
+table: posts
+name: posts
+database_id: test
+schema:
+  id:
+    type: id
+  created:
+    type: created_at
+  modified:
+    type: updated_at
+"#,
+        )
+        .unwrap();
+        TableSchema::compile(&collection).unwrap()
+    }
+
+    #[test]
+    fn timestamps_are_generated_only_for_database_rows() {
+        let files = file_map(&timestamp_schema(), true);
+        let typescript = &files[&PathBuf::from("posts.ts")];
+        assert_eq!(typescript.matches("  created: Date;").count(), 1);
+        assert_eq!(typescript.matches("  modified: Date;").count(), 1);
+
+        let valibot = &files[&PathBuf::from("posts-valibot.ts")];
+        assert_eq!(valibot.matches("  created:").count(), 1);
+        assert_eq!(valibot.matches("  modified:").count(), 1);
+    }
 }
