@@ -21,7 +21,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 treesitteract = { path = "../treesitteract" }
 thiserror = "2"
-usvg = "0.47"
+usvg = "0.48"
 valuable = { version = "0.1", features = ["derive"] }
 winnow = "1"
 toml = "1"
