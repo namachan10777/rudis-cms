@@ -42,7 +42,7 @@ crossbeam = { version = "0.8", features = ["crossbeam-queue"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 reqwest = { version = "0.13", features = ["json", "rustls", "webpki-roots"], default-features = false }
 html-escape = "0.2"
-stringcase = "0.4"
+stringcase = "1.0"
 base64 = "0.23"
 serde_with = { version = "3", features = ["json"] }
 sqlx = { version = "0.8", default-features = false, features = ["derive", "json", "runtime-tokio", "sqlite"] }
